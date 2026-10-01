@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+# Output and saved pages carry the exit's location; never commit them.
+*.jsonl
+*.html
+results*

@@ -1,0 +1,52 @@
+# Publish to PyPI as `google-serp`, without a password.
+#
+# PyPI trusts this workflow directly through Trusted Publishing: GitHub signs a
+# short-lived token naming the repository, this file and the `pypi` environment,
+# and PyPI checks it against the publisher registered for the project. No API
+# token is stored anywhere.
+#
+# It runs on a published GitHub release, never on a push, so an ordinary merge
+# can never become a release. Release from a `vX.Y.Z` tag: the `pypi`
+# environment should be restricted to `v*` tags.
+#
+# Build and upload are separate jobs so that only the upload job can obtain the
+# publishing credential; the job that runs project code cannot.
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade build twine
+      - run: python -m build
+      # PyPI accepts a README it cannot render and shows it as raw text; this is
+      # the check that catches it before the version number is spent.
+      - run: python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

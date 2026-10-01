@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Installed as `google-serp`; the import name stays `google_search_scraper` and
+# both `google-serp` and `google-search-scraper` commands are provided.
+name = "google-serp"
+version = "0.0.1"
+description = "Google Search results from a real browser through your own sticky proxy, with captchas and blocks reported explicitly."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "NodeMaven" }]
+keywords = ["google", "serp", "scraper", "search", "proxy", "playwright", "patchright"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
+dependencies = [
+    # Pinned, because each patchright release ships a different Chromium and
+    # the browser build is part of what Google sees. 1.62.2 is Chromium 151,
+    # the build every live run of this tool was made with.
+    "patchright==1.62.2",
+    "lxml>=5",
+]
+
+[project.optional-dependencies]
+# The NodeMaven SDK builds sticky-session usernames for its gateway. Any other
+# provider works through a proxy URL with a `{session}` placeholder instead.
+nodemaven = ["nodemaven>=0.1.5"]
+# CloakBrowser's patched Chromium; downloads its own binary on first use.
+cloak = ["cloakbrowser>=0.5"]
+all = ["nodemaven>=0.1.5", "cloakbrowser>=0.5"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+google-search-scraper = "google_search_scraper.cli:main"
+google-serp = "google_search_scraper.cli:main"
+
+[project.urls]
+Source = "https://github.com/nodemaven/google-search-scraper"
+Issues = "https://github.com/nodemaven/google-search-scraper/issues"
+Benchmark = "https://github.com/nodemaven/proxy-benchmark"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
