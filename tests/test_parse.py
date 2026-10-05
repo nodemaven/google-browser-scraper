@@ -1,6 +1,6 @@
 import pages
 
-from google_search_scraper.parse import parse_serp, resolve_goto
+from google_browser_scraper.parse import parse_serp, resolve_goto
 
 
 def test_organic_results_in_page_order_without_people_also_ask():

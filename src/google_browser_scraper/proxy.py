@@ -100,7 +100,8 @@ class NodeMavenSource:
             from nodemaven import Proxy
         except ImportError as exc:  # pragma: no cover - depends on the extra
             raise RuntimeError(
-                "the NodeMaven source needs the SDK: pip install 'google-serp[nodemaven]'"
+                "the NodeMaven source needs the SDK: "
+                "pip install 'google-browser-scraper[nodemaven]'"
             ) from exc
         login = os.environ.get("NODEMAVEN_LOGIN")
         password = os.environ.get("NODEMAVEN_PASSWORD")

@@ -1,10 +1,10 @@
-# google-search-scraper: headful Chromium on a virtual display, serving the
+# google-browser-scraper: headful Chromium on a virtual display, serving the
 # SerpApi-style API on port 8000 by default.
 #
-#   docker build -t google-search-scraper .
-#   docker run --rm google-search-scraper doctor
-#   docker run --rm -p 8000:8000 -e GSS_API_KEY=... -e GSS_PROXY='http://u-{session}:p@host:port' \
-#       google-search-scraper serve --host 0.0.0.0
+#   docker build -t google-browser-scraper .
+#   docker run --rm google-browser-scraper doctor
+#   docker run --rm -p 8000:8000 -e GBS_API_KEY=... -e GBS_PROXY='http://u-{session}:p@host:port' \
+#       google-browser-scraper serve --host 0.0.0.0
 #
 # Headful on purpose: headless builds announce HeadlessChrome. A real display is
 # replaced by Xvfb at 1920x1080x24, not Xvfb's small default, because the screen
@@ -20,7 +20,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     DISPLAY=:99 \
-    GSS_BROWSER_ARGS="--enable-unsafe-swiftshader"
+    GBS_BROWSER_ARGS="--enable-unsafe-swiftshader"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

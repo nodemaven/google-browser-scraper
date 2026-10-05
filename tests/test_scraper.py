@@ -3,9 +3,9 @@
 import pages
 import pytest
 
-from google_search_scraper.browser import Fetched
-from google_search_scraper.proxy import ProxyTemplate
-from google_search_scraper.scraper import ExitsRefused, Scraper, Settings
+from google_browser_scraper.browser import Fetched
+from google_browser_scraper.proxy import ProxyTemplate
+from google_browser_scraper.scraper import ExitsRefused, Scraper, Settings
 
 SEARCH = "https://www.google.com/search?q=x"
 SERVED = Fetched(SEARCH, 200, pages.results_page())
@@ -318,7 +318,7 @@ def test_unresolved_links_are_filled_by_the_resolver_on_a_session_of_its_own():
 
 
 def test_errors_are_one_line_with_credentials_masked():
-    from google_search_scraper.scraper import describe_error
+    from google_browser_scraper.scraper import describe_error
 
     exc = RuntimeError("proxy http://user:secret@gate.example.com:7000 failed\nCall log: ...")
     text = describe_error(exc)

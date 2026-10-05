@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from google_search_scraper.links import LinkResolver
+from google_browser_scraper.links import LinkResolver
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -1,6 +1,6 @@
 """Google search results from a real browser through your own proxy.
 
-from google_search_scraper import Scraper, Settings, ProxyTemplate
+from google_browser_scraper import Scraper, Settings, ProxyTemplate
 
 proxy = ProxyTemplate("http://user-session-{session}:pass@gate.example.com:7000")
 for record in Scraper(proxy, Settings(pages=2)).run(["best running shoes"]):

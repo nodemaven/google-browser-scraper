@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="google-search-scraper",
+        prog="google-browser-scraper",
         description="Google results from a real browser through your own proxy.",
     )
     parser.add_argument("--version", action="version", version=__version__)
@@ -84,7 +84,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     source = p.add_mutually_exclusive_group()
     source.add_argument(
         "--proxy",
-        help="proxy URL with a {session} placeholder for sticky sessions; also read from GSS_PROXY",
+        help="proxy URL with a {session} placeholder for sticky sessions; also read from GBS_PROXY",
     )
     source.add_argument(
         "--nodemaven",
@@ -130,7 +130,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         dest="browser_args",
-        help="extra Chromium switch, repeatable; also GSS_BROWSER_ARGS",
+        help="extra Chromium switch, repeatable; also GBS_BROWSER_ARGS",
     )
     p.add_argument(
         "--no-relay",
@@ -157,7 +157,7 @@ def _build(args, *, pages: int = 1) -> tuple[Scraper, str]:
     elif args.no_proxy:
         proxy = None
     else:
-        url = args.proxy or os.environ.get("GSS_PROXY")
+        url = args.proxy or os.environ.get("GBS_PROXY")
         if not url:
             raise ValueError("give --proxy, --nodemaven or --no-proxy")
         proxy = ProxyTemplate(url)
@@ -173,7 +173,7 @@ def _build(args, *, pages: int = 1) -> tuple[Scraper, str]:
             file=sys.stderr,
         )
     browser_args = tuple(args.browser_args) + tuple(
-        shlex.split(os.environ.get("GSS_BROWSER_ARGS", ""))
+        shlex.split(os.environ.get("GBS_BROWSER_ARGS", ""))
     )
     settings = Settings(
         engine=args.engine,
@@ -256,7 +256,7 @@ def _doctor(args) -> int:
     from .doctor import FAIL, assess, read_fingerprint
 
     browser_args = tuple(args.browser_args) + tuple(
-        shlex.split(os.environ.get("GSS_BROWSER_ARGS", ""))
+        shlex.split(os.environ.get("GBS_BROWSER_ARGS", ""))
     )
     fp = read_fingerprint(
         engine=args.engine, headless=args.headless, channel=args.channel, browser_args=browser_args

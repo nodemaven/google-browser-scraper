@@ -73,7 +73,7 @@ class Relay:
         server.listen(64)
         server.settimeout(0.5)
         self._server = server
-        thread = threading.Thread(target=self._accept_loop, name="gss-relay", daemon=True)
+        thread = threading.Thread(target=self._accept_loop, name="gbs-relay", daemon=True)
         thread.start()
         self._threads.append(thread)
         return f"http://127.0.0.1:{server.getsockname()[1]}"

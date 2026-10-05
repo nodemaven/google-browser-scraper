@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from google_search_scraper.mcp import McpServer, compact
-from google_search_scraper.scraper import ExitsRefused, Settings, Stats
-from google_search_scraper.server import Worker, make_handler
+from google_browser_scraper.mcp import McpServer, compact
+from google_browser_scraper.scraper import ExitsRefused, Settings, Stats
+from google_browser_scraper.server import Worker, make_handler
 
 
 def record(query, page=1, error=None):
@@ -167,10 +167,10 @@ def test_tripped_breaker_is_a_503_and_is_reset_for_the_next_request(monkeypatch)
 
 
 def test_serve_refuses_a_public_address_without_a_key(monkeypatch):
-    from google_search_scraper import server
+    from google_browser_scraper import server
 
-    monkeypatch.delenv("GSS_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="GSS_API_KEY"):
+    monkeypatch.delenv("GBS_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="GBS_API_KEY"):
         server.serve(None, host="0.0.0.0", port=0)
 
 
@@ -286,9 +286,9 @@ def test_a_worker_that_died_fails_calls_at_once():
 
 @pytest.mark.parametrize("argv", [["mcp", "--nodemaven"], ["serve"]])
 def test_serve_and_mcp_exit_on_a_bad_setup(argv, monkeypatch, capsys):
-    from google_search_scraper.cli import main
+    from google_browser_scraper.cli import main
 
-    for name in ("NODEMAVEN_LOGIN", "NODEMAVEN_PASSWORD", "GSS_PROXY"):
+    for name in ("NODEMAVEN_LOGIN", "NODEMAVEN_PASSWORD", "GBS_PROXY"):
         monkeypatch.delenv(name, raising=False)
     assert main(argv) == 1
     assert capsys.readouterr().err.startswith("error: ")
@@ -331,7 +331,7 @@ def test_parse_writes_utf8_when_piped(tmp_path):
         "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
     }
     done = subprocess.run(
-        [sys.executable, "-m", "google_search_scraper", "parse", str(page)],
+        [sys.executable, "-m", "google_browser_scraper", "parse", str(page)],
         capture_output=True,
         env=env,
         timeout=60,

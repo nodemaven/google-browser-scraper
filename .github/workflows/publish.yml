@@ -1,4 +1,4 @@
-# Publish to PyPI as `google-serp`, without a password.
+# Publish to PyPI as `google-browser-scraper`, without a password.
 #
 # PyPI trusts this workflow directly through Trusted Publishing: GitHub signs a
 # short-lived token naming the repository, this file and the `pypi` environment,

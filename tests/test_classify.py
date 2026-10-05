@@ -1,7 +1,7 @@
 import pages
 import pytest
 
-from google_search_scraper.classify import (
+from google_browser_scraper.classify import (
     BLOCK,
     CONSENT,
     EMPTY,

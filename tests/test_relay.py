@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from google_search_scraper.relay import Relay
+from google_browser_scraper.relay import Relay
 
 
 def _serve(handler):

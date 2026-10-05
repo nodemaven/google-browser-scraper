@@ -445,5 +445,5 @@ class Scraper:
             raise ExitsRefused(
                 f"{self._failed_exits} exits in a row were refused or unreachable. "
                 "Stopping rather than spending more traffic: check the proxy, the "
-                "machine (`google-search-scraper doctor`) and the hour, then retry."
+                "machine (`google-browser-scraper doctor`) and the hour, then retry."
             )

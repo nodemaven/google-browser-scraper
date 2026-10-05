@@ -83,7 +83,7 @@ class BrowserSession:
         self.page = None
 
     def __enter__(self) -> BrowserSession:
-        self._profile = tempfile.mkdtemp(prefix="gss-profile-")
+        self._profile = tempfile.mkdtemp(prefix="gbs-profile-")
         try:
             self._context = self._launch(self._profile)
         except Exception:

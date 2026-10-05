@@ -13,8 +13,8 @@ import importlib
 import fakegoogle
 import pytest
 
-from google_search_scraper import browser, engines
-from google_search_scraper.scraper import Scraper, Settings
+from google_browser_scraper import browser, engines
+from google_browser_scraper.scraper import Scraper, Settings
 
 PACKAGES = {"patchright": "patchright.sync_api", "cloak": "cloakbrowser"}
 

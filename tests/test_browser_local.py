@@ -13,8 +13,8 @@ patchright = pytest.importorskip("patchright.sync_api")
 
 from urllib.parse import urlsplit  # noqa: E402
 
-from google_search_scraper import browser  # noqa: E402
-from google_search_scraper.classify import classify  # noqa: E402
+from google_browser_scraper import browser  # noqa: E402
+from google_browser_scraper.classify import classify  # noqa: E402
 
 
 @pytest.fixture

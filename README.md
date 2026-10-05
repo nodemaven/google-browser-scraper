@@ -1,4 +1,4 @@
-# google-search-scraper
+# google-browser-scraper
 
 Google Search results from a real browser, through your own sticky proxy.
 
@@ -12,7 +12,7 @@ page. Captchas, blocks and failures are reported as such, never as "no results".
 ## Install
 
 ```
-pip install google-serp
+pip install google-browser-scraper
 patchright install chromium
 ```
 
@@ -22,7 +22,7 @@ You need a residential proxy with **sticky sessions**. Put `{session}` where
 your provider expects a session id in the username:
 
 ```
-google-serp search "best running shoes" \
+google-browser-scraper search "best running shoes" \
   --proxy "http://USER-session-{session}:PASS@gate.example.com:7000" \
   -o results.jsonl
 ```
@@ -50,15 +50,15 @@ With NodeMaven, the session id is handled for you and the credentials come from
 the environment:
 
 ```
-pip install "google-serp[nodemaven]"
+pip install "google-browser-scraper[nodemaven]"
 export NODEMAVEN_LOGIN=... NODEMAVEN_PASSWORD=...
-google-serp search -f queries.txt --nodemaven --country us -o results.jsonl
+google-browser-scraper search -f queries.txt --nodemaven --country us -o results.jsonl
 ```
 
 From Python:
 
 ```python
-from google_search_scraper import ProxyTemplate, Scraper, Settings
+from google_browser_scraper import ProxyTemplate, Scraper, Settings
 
 proxy = ProxyTemplate("http://USER-session-{session}:PASS@gate.example.com:7000")
 for page in Scraper(proxy, Settings(pages=2)).run(["best running shoes"]):
@@ -110,12 +110,12 @@ endpoint, because Chrome cannot send a SOCKS5 username and password.
 ## Run it as an API
 
 ```
-google-serp serve --nodemaven --country us --prewarm
+google-browser-scraper serve --nodemaven --country us --prewarm
 curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 ```
 
 Same record format as above. Requests run one at a time on one held identity.
-Set `GSS_API_KEY` to require a key; without one the server only listens on
+Set `GBS_API_KEY` to require a key; without one the server only listens on
 localhost.
 
 ## Use it from an AI agent (MCP)
@@ -124,7 +124,7 @@ localhost.
 {
   "mcpServers": {
     "google-search": {
-      "command": "google-serp",
+      "command": "google-browser-scraper",
       "args": ["mcp", "--nodemaven", "--country", "us", "--prewarm"],
       "env": {"NODEMAVEN_LOGIN": "...", "NODEMAVEN_PASSWORD": "..."}
     }
@@ -137,17 +137,17 @@ It exposes one tool, `google_search(query, pages)`.
 ## Docker
 
 ```
-docker build -t google-search-scraper .
-docker run --rm google-search-scraper doctor
-docker run --rm -p 8000:8000 -e GSS_API_KEY=change-me \
-  -e GSS_PROXY='http://USER-session-{session}:PASS@gate.example.com:7000' \
-  google-search-scraper serve --host 0.0.0.0
+docker build -t google-browser-scraper .
+docker run --rm google-browser-scraper doctor
+docker run --rm -p 8000:8000 -e GBS_API_KEY=change-me \
+  -e GBS_PROXY='http://USER-session-{session}:PASS@gate.example.com:7000' \
+  google-browser-scraper serve --host 0.0.0.0
 ```
 
 ## Check your machine
 
 ```
-google-serp doctor
+google-browser-scraper doctor
 ```
 
 Starts the browser on a blank page, sends nothing, and reports what a website

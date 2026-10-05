@@ -4,11 +4,11 @@ import json
 import pages
 import pytest
 
-from google_search_scraper import cli
-from google_search_scraper.classify import classify
-from google_search_scraper.doctor import FAIL, PASS, WARN, assess
-from google_search_scraper.output import build_record, open_writer
-from google_search_scraper.parse import parse_serp
+from google_browser_scraper import cli
+from google_browser_scraper.classify import classify
+from google_browser_scraper.doctor import FAIL, PASS, WARN, assess
+from google_browser_scraper.output import build_record, open_writer
+from google_browser_scraper.parse import parse_serp
 
 
 def record():
@@ -77,7 +77,7 @@ def test_parse_command_refuses_to_parse_a_refusal(tmp_path, capsys):
     ],
 )
 def test_search_argument_errors(argv, capsys, monkeypatch):
-    monkeypatch.delenv("GSS_PROXY", raising=False)
+    monkeypatch.delenv("GBS_PROXY", raising=False)
     assert cli.main(argv) == 1
     assert capsys.readouterr().err.startswith("error:")
 

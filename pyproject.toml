@@ -3,9 +3,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# Installed as `google-serp`; the import name stays `google_search_scraper` and
-# both `google-serp` and `google-search-scraper` commands are provided.
-name = "google-serp"
+name = "google-browser-scraper"
 version = "0.0.1"
 description = "Google Search results from a real browser through your own sticky proxy, with captchas and blocks reported explicitly."
 readme = "README.md"
@@ -37,12 +35,11 @@ all = ["nodemaven>=0.1.5", "cloakbrowser>=0.5"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
-google-search-scraper = "google_search_scraper.cli:main"
-google-serp = "google_search_scraper.cli:main"
+google-browser-scraper = "google_browser_scraper.cli:main"
 
 [project.urls]
-Source = "https://github.com/nodemaven/google-search-scraper"
-Issues = "https://github.com/nodemaven/google-search-scraper/issues"
+Source = "https://github.com/nodemaven/google-browser-scraper"
+Issues = "https://github.com/nodemaven/google-browser-scraper/issues"
 Benchmark = "https://github.com/nodemaven/proxy-benchmark"
 
 [tool.setuptools.packages.find]

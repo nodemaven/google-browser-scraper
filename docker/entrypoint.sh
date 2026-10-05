@@ -16,4 +16,4 @@ if [ ! -e /tmp/.X11-unix/X99 ]; then
     exit 1
 fi
 
-exec google-search-scraper "$@"
+exec google-browser-scraper "$@"

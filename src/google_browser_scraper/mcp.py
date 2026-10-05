@@ -8,7 +8,7 @@ default encoding is.
 
 Register it with an MCP client as a command, for example:
 
-    {"command": "google-search-scraper", "args": ["mcp", "--nodemaven", "--country", "us"],
+    {"command": "google-browser-scraper", "args": ["mcp", "--nodemaven", "--country", "us"],
      "env": {"NODEMAVEN_LOGIN": "...", "NODEMAVEN_PASSWORD": "..."}}
 
 The first call warms an exit and can take a minute or two; `--prewarm` starts
@@ -123,7 +123,7 @@ class McpServer:
             return {
                 "protocolVersion": asked if asked in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0],
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "google-search-scraper", "version": __version__},
+                "serverInfo": {"name": "google-browser-scraper", "version": __version__},
             }
         if method == "ping":
             return {}

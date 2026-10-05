@@ -1,6 +1,6 @@
 import pytest
 
-from google_search_scraper.proxy import ProxyTemplate, new_session_id
+from google_browser_scraper.proxy import ProxyTemplate, new_session_id
 
 
 def test_session_placeholder_is_filled_per_identity():

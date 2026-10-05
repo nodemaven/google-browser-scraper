@@ -9,7 +9,7 @@ JSON array of records. Requests are served one at a time: a single browser
 identity is held between them, which is the point - a served exit answers the
 next query too.
 
-Set GSS_API_KEY to require `api_key=` or `Authorization: Bearer`; without it the
+Set GBS_API_KEY to require `api_key=` or `Authorization: Bearer`; without it the
 server refuses to listen anywhere but loopback.
 """
 
@@ -58,7 +58,7 @@ class Worker:
         self._prewarm = prewarm
         self._log = log or (lambda message: print(message, file=sys.stderr))
         self._jobs: queue.Queue = queue.Queue()
-        self._thread = threading.Thread(target=self._loop, name="gss-worker", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name="gbs-worker", daemon=True)
         self._started = threading.Event()
         self._lock = threading.Lock()
         self._build_error: BaseException | None = None
@@ -166,7 +166,7 @@ def search_job(query: str, pages: int) -> Callable[[Scraper], list[dict[str, Any
 
 def make_handler(worker: Worker, *, api_key: str | None, max_pages: int):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "google-search-scraper"
+        server_version = "google-browser-scraper"
 
         def do_GET(self):  # noqa: N802 - the stdlib's name
             parts = urlsplit(self.path)
@@ -221,10 +221,10 @@ def make_handler(worker: Worker, *, api_key: str | None, max_pages: int):
 
 
 def serve(worker: Worker, *, host: str, port: int, max_pages: int = 3) -> None:
-    api_key = os.environ.get("GSS_API_KEY") or None
+    api_key = os.environ.get("GBS_API_KEY") or None
     if not api_key and host not in ("127.0.0.1", "localhost", "::1"):
         raise ValueError(
-            "set GSS_API_KEY before listening on a non-loopback address: "
+            "set GBS_API_KEY before listening on a non-loopback address: "
             "anyone who can reach the port spends your proxy traffic"
         )
     server = ThreadingHTTPServer(
