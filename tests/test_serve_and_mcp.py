@@ -2,10 +2,14 @@
 
 import io
 import json
+import os
+import subprocess
+import sys
 import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -251,3 +255,87 @@ def test_mcp_stdio_loop_writes_one_line_per_reply(worker):
 def test_compact_reports_errors_without_results():
     body = compact([record("x", error="refused on 3 exits: captcha")])
     assert body["results"] == [] and body["errors"] == ["refused on 3 exits: captcha"]
+
+
+class Crash(BaseException):
+    """Not an Exception, so nothing between the job loop and the thread catches it."""
+
+
+def test_start_raises_what_stopped_the_scraper_from_being_built():
+    def missing_credentials():
+        raise RuntimeError("set NODEMAVEN_LOGIN and NODEMAVEN_PASSWORD in the environment")
+
+    with pytest.raises(RuntimeError, match="NODEMAVEN_LOGIN"):
+        Worker(missing_credentials, log=lambda m: None).start()
+
+
+def test_a_worker_that_died_fails_calls_at_once():
+    class DyingScraper(FakeScraper):
+        def prewarm(self):
+            raise Crash("the browser went away")
+
+    fake = DyingScraper()
+    worker = Worker(lambda: fake, prewarm=True, log=lambda m: None).start()
+    with pytest.raises(RuntimeError, match="not running"):
+        worker.call(lambda s: s.search("a"), timeout=10)
+    with pytest.raises(RuntimeError, match="not running"):
+        worker.call(lambda s: s.search("b"), timeout=10)
+    assert fake.closed and fake.calls == []
+    worker.stop()
+
+
+@pytest.mark.parametrize("argv", [["mcp", "--nodemaven"], ["serve"]])
+def test_serve_and_mcp_exit_on_a_bad_setup(argv, monkeypatch, capsys):
+    from google_search_scraper.cli import main
+
+    for name in ("NODEMAVEN_LOGIN", "NODEMAVEN_PASSWORD", "GSS_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    assert main(argv) == 1
+    assert capsys.readouterr().err.startswith("error: ")
+
+
+MCP_CHILD = Path(__file__).with_name("stdio_mcp_child.py")
+
+
+@pytest.mark.parametrize("encoding", ["", "ascii", "cp1252"])
+def test_mcp_stdio_is_utf8_whatever_the_system_encoding(encoding):
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "google_search", "arguments": {"query": "кофе рядом"}},
+    }
+    env = {**os.environ, "PYTHONIOENCODING": encoding}
+    done = subprocess.run(
+        [sys.executable, str(MCP_CHILD)],
+        input=(json.dumps(request, ensure_ascii=False) + "\n").encode("utf-8"),
+        capture_output=True,
+        env=env,
+        timeout=60,
+    )
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    assert b"\r\n" not in done.stdout
+    reply = json.loads(done.stdout.decode("utf-8"))
+    body = json.loads(reply["result"]["content"][0]["text"])
+    assert body["results"][0]["title"] == "Café кофе рядом"
+
+
+def test_parse_writes_utf8_when_piped(tmp_path):
+    from pages import results_page
+
+    page = tmp_path / "page.html"
+    page.write_text(results_page().replace("Unresolvable result", "Café кофе"), encoding="utf-8")
+    env = {
+        **os.environ,
+        "PYTHONIOENCODING": "ascii",
+        "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+    }
+    done = subprocess.run(
+        [sys.executable, "-m", "google_search_scraper", "parse", str(page)],
+        capture_output=True,
+        env=env,
+        timeout=60,
+    )
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    titles = [r["title"] for r in json.loads(done.stdout.decode("utf-8"))["organic_results"]]
+    assert "Café кофе" in titles

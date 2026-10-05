@@ -30,6 +30,7 @@ from urllib.parse import parse_qs, urlsplit
 from .scraper import ExitsRefused, Scraper
 
 REQUEST_TIMEOUT_S = 900
+STARTUP_TIMEOUT_S = 60
 
 
 class Worker:
@@ -38,6 +39,12 @@ class Worker:
     Playwright's sync API is bound to the thread that started it, so every
     call into the scraper - from HTTP handler threads or the MCP loop - is a
     job on this thread's queue.
+
+    `start()` returns only once the scraper exists, and raises whatever stopped
+    it from being built - a missing proxy or missing credentials - so `serve`
+    and `mcp` exit with that message instead of accepting requests nobody will
+    answer. If the thread ends later for any reason, queued and new jobs fail
+    at once rather than waiting out their timeout.
     """
 
     def __init__(
@@ -52,26 +59,47 @@ class Worker:
         self._log = log or (lambda message: print(message, file=sys.stderr))
         self._jobs: queue.Queue = queue.Queue()
         self._thread = threading.Thread(target=self._loop, name="gss-worker", daemon=True)
+        self._started = threading.Event()
+        self._lock = threading.Lock()
+        self._build_error: BaseException | None = None
+        self._stopped: BaseException | None = None
         self.scraper: Scraper | None = None
 
-    def start(self) -> Worker:
+    def start(self, timeout: float = STARTUP_TIMEOUT_S) -> Worker:
         self._thread.start()
+        if not self._started.wait(timeout):
+            raise RuntimeError(f"the scraper did not start within {timeout:g} s")
+        if self._build_error is not None:
+            raise self._build_error
         return self
 
     def submit(self, job: Callable[[Scraper], Any]) -> Future:
         future: Future = Future()
-        self._jobs.put((job, future))
+        with self._lock:
+            if self._stopped is not None:
+                future.set_exception(self._unavailable())
+            else:
+                self._jobs.put((job, future))
         return future
 
     def call(self, job: Callable[[Scraper], Any], timeout: float = REQUEST_TIMEOUT_S) -> Any:
         return self.submit(job).result(timeout=timeout)
 
     def stop(self) -> None:
-        self._jobs.put(None)
-        self._thread.join(timeout=30)
+        if self._thread.is_alive():
+            self._jobs.put(None)
+            self._thread.join(timeout=30)
 
     def _loop(self) -> None:
-        self.scraper = self._make()
+        try:
+            self.scraper = self._make()
+        except BaseException as exc:  # raised again by start()
+            self._build_error = exc
+            self._shut_down(exc)
+            self._started.set()
+            return
+        self._started.set()
+        cause: BaseException = RuntimeError("stopped")
         try:
             if self._prewarm:
                 try:
@@ -91,8 +119,31 @@ class Worker:
                     future.set_result(job(self.scraper))
                 except BaseException as exc:  # handed to the waiting caller
                     future.set_exception(exc)
+        except BaseException as exc:
+            cause = exc
+            self._log(f"worker stopped: {type(exc).__name__}: {exc}")
         finally:
-            self.scraper.close()
+            try:
+                self.scraper.close()
+            except Exception as exc:
+                self._log(f"closing the scraper failed: {type(exc).__name__}: {exc}")
+            self._shut_down(cause)
+
+    def _shut_down(self, cause: BaseException) -> None:
+        """Refuse new jobs and fail the ones still queued."""
+        with self._lock:
+            self._stopped = cause
+            while True:
+                try:
+                    item = self._jobs.get_nowait()
+                except queue.Empty:
+                    break
+                if item is not None and item[1].set_running_or_notify_cancel():
+                    item[1].set_exception(self._unavailable())
+
+    def _unavailable(self) -> RuntimeError:
+        cause = self._stopped
+        return RuntimeError(f"the scraper is not running ({type(cause).__name__}: {cause})")
 
 
 def search_job(query: str, pages: int) -> Callable[[Scraper], list[dict[str, Any]]]:

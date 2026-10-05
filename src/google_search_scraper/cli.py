@@ -11,13 +11,15 @@ from pathlib import Path
 
 from . import __version__, engines, warmup
 from .classify import classify
-from .output import WRITERS, open_writer
+from .output import WRITERS, open_writer, use_utf8
 from .parse import parse_serp
 from .proxy import NodeMavenSource, ProxyTemplate
 from .scraper import ExitsRefused, Scraper, Settings
 
 
 def main(argv: list[str] | None = None) -> int:
+    use_utf8(sys.stdout)
+    use_utf8(sys.stderr, errors="backslashreplace")
     parser = _parser()
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):

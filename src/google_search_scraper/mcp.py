@@ -2,7 +2,9 @@
 
 JSON-RPC 2.0, one message per line on stdin and stdout, written against the
 MCP specification without the SDK so the package keeps two dependencies.
-stdout carries protocol messages only; everything else goes to stderr.
+stdout carries protocol messages only; everything else goes to stderr. Both
+streams are UTF-8, as the specification requires, whatever the system's
+default encoding is.
 
 Register it with an MCP client as a command, for example:
 
@@ -20,6 +22,7 @@ import sys
 from typing import IO, Any
 
 from . import __version__
+from .output import use_utf8
 from .scraper import ExitsRefused
 from .server import Worker, search_job
 
@@ -78,10 +81,14 @@ def compact(records: list[dict[str, Any]]) -> dict[str, Any]:
 class McpServer:
     def __init__(self, worker: Worker, *, stdout: IO[str] | None = None) -> None:
         self._worker = worker
-        self._out = stdout or sys.stdout
+        # One message per line: "\n" exactly, not the platform's "\r\n".
+        self._out = stdout if stdout is not None else use_utf8(sys.stdout, newline="\n")
 
     def serve(self, stdin: IO[str] | None = None) -> None:
-        for line in stdin or sys.stdin:
+        if stdin is None:
+            # A byte that is not UTF-8 becomes a parse error, not a crash.
+            stdin = use_utf8(sys.stdin, errors="replace")
+        for line in stdin:
             line = line.strip()
             if not line:
                 continue

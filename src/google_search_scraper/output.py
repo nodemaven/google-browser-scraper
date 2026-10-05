@@ -9,10 +9,29 @@ accounts for every query it was given.
 from __future__ import annotations
 
 import csv
+import io
 import json
 import uuid
 from datetime import datetime, timezone
 from typing import IO, Any
+
+
+def use_utf8(stream: IO[str], **options: str) -> IO[str]:
+    """Switch a standard stream to UTF-8, whatever the system's default is.
+
+    A redirected or piped stream otherwise uses the locale's code page - cp1251
+    or cp1252 on Windows - which cannot encode most of what a results page
+    contains and garbles what it reads. An interactive console is unaffected
+    either way. Streams that cannot be reconfigured are left as they are.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(encoding="utf-8", **options)
+        except (ValueError, io.UnsupportedOperation):
+            pass
+    return stream
+
 
 ORGANIC_COLUMNS = (
     "query",
