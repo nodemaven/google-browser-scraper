@@ -55,6 +55,16 @@ export NODEMAVEN_LOGIN=... NODEMAVEN_PASSWORD=...
 google-browser-scraper search -f queries.txt --nodemaven --country us -o results.jsonl
 ```
 
+To try it without a proxy, use your own connection:
+
+```
+google-browser-scraper search "best running shoes" --no-proxy
+```
+
+Google then sees one address for every query, so it starts answering with
+captchas sooner than it would across a pool of exits. Those pages come back as
+`captcha` in `page_verdict`, not as empty results.
+
 From Python:
 
 ```python
