@@ -47,8 +47,13 @@ def resolve_goto(page: str, token: str) -> str | None:
     the token, `...<token>"],["https://...`. A video result does not; its entry
     carries the token several times and ends with `["VIDEO_RESULT", ...,
     "https://www.youtube.com/watch?v=..."]`, so the fallback takes the first
-    non-Google URL after a JSON occurrence of the token, without crossing into
-    the next result's entry.
+    non-Google URL after that marker, without crossing into the next result's
+    entry.
+
+    The fallback reads nothing before the marker and nothing in an entry that
+    has none. Those stretches hold other URLs - an SVG namespace, a thumbnail -
+    and returning one of them gives a confident wrong link. With no marker the
+    answer is None, and `links.LinkResolver` asks the redirect instead.
     """
     occurrences = []
     start = 0
@@ -64,7 +69,10 @@ def resolve_goto(page: str, token: str) -> str | None:
         cut = window.find(_NEXT_ENTRY)
         if cut >= 0:
             window = window[:cut]
-        for match in _JSON_URL.finditer(window):
+        marker = window.find(_VIDEO_MARKER)
+        if marker < 0:
+            continue
+        for match in _JSON_URL.finditer(window, marker):
             url = _unescape(match.group(1))
             if not _is_google(url):
                 return url
@@ -75,6 +83,7 @@ def resolve_goto(page: str, token: str) -> str | None:
 # the next result's entry.
 _WINDOW = 1500
 _NEXT_ENTRY = "[null,1,[null,null,5,"
+_VIDEO_MARKER = '"VIDEO_RESULT"'
 _JSON_URL = re.compile(r'"(https?:[^"\\]*(?:\\.[^"\\]*)*)"')
 
 

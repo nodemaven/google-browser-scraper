@@ -99,6 +99,25 @@ def test_video_results_resolve_through_their_video_entry():
     assert resolve_goto(page, token) == "https://www.youtube.com/watch?v=abc"
 
 
+def test_fallback_ignores_urls_before_the_video_marker():
+    token = "CAESvideo"
+    page = (
+        f'[null,1,[null,null,5,null,"A video",null,"/goto?url={token}"],null,'
+        '["http://www.w3.org/2000/svg"],'
+        '["VIDEO_RESULT","CKoG",null,"https://www.youtube.com/watch?v=abc"]]'
+    )
+    assert resolve_goto(page, token) == "https://www.youtube.com/watch?v=abc"
+
+
+def test_fallback_leaves_a_result_without_a_video_marker_to_the_resolver():
+    """A thumbnail or an SVG namespace near the token is not the destination."""
+    page = (
+        '[null,1,[null,null,5,null,"t",null,"/goto?url=TOK"],null,'
+        '["http://www.w3.org/2000/svg"],["https://cdn.example/thumb.jpg"]]'
+    )
+    assert resolve_goto(page, "TOK") is None
+
+
 def test_fallback_does_not_cross_into_the_next_entry():
     page = (
         '[null,1,[null,null,5,null,"t",null,"/goto?url\u003dTOK"],null,'

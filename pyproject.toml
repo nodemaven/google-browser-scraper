@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "google-browser-scraper"
-version = "0.0.1"
+version = "0.0.2"
 description = "Google Search results from a real browser through your own sticky proxy, with captchas and blocks reported explicitly."
 readme = "README.md"
 license = { text = "MIT" }
