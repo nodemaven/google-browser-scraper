@@ -22,6 +22,9 @@ from dataclasses import dataclass, field, replace
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 HOME_URL = "https://www.google.com/?hl=en"
+#: How a query gets into the search box: key by key, all at once, or one word
+#: at a time.
+INPUT_MODES = ("type", "insert", "words")
 SEARCH_BOX = "textarea[name='q'], input[name='q']"
 READY = "#rso, #search"
 # Reject first: it sets the smaller cookie. The middle selector is the
@@ -73,7 +76,11 @@ class BrowserSession:
         browser_args: list[str] | tuple[str, ...] = (),
         rng: random.Random | None = None,
         profile_dir: str | None = None,
+        input_mode: str = "type",
     ) -> None:
+        if input_mode not in INPUT_MODES:
+            raise ValueError(f"input mode must be one of {', '.join(INPUT_MODES)}")
+        self._input = input_mode
         if any(a.startswith(("--disable-features", "--enable-features")) for a in browser_args):
             raise ValueError(
                 "--disable-features/--enable-features would replace the browser's "
@@ -238,7 +245,17 @@ class BrowserSession:
         # so the typing replaces it.
         if box.input_value():
             box.press("ControlOrMeta+a")
-        box.type(query, delay=self._rng.randint(45, 140))
+        if self._input == "insert":
+            page.keyboard.insert_text(query)
+        elif self._input == "words":
+            words = query.split(" ")
+            for i, word in enumerate(words):
+                last = i == len(words) - 1
+                page.keyboard.insert_text(word if last else word + " ")
+                if not last:
+                    time.sleep(self._rng.uniform(0.15, 0.5))
+        else:
+            box.type(query, delay=self._rng.randint(45, 140))
         return box
 
     def blank(self) -> None:

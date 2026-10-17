@@ -50,6 +50,7 @@ MB = 1024 * 1024
 MAX_SPARES = 3
 MAX_CLONES = 50
 TOP_HOSTS = 10
+DIRECT_MODES = ("follow-ups", "all", "none")
 #: Records held back while their links resolve in the background; past this
 #: the run waits for the oldest instead of opening more pages ahead of it.
 MAX_HELD = 3
@@ -187,9 +188,12 @@ class Settings:
     #: template well past an hour old keep being served; one that is refused
     #: on its first query ends the template whatever its age.
     clone_max_age: float = 3 * 3600.0
-    #: Type every query into the box. By default only an exit's first query is
-    #: typed and later ones open the results page directly.
-    type_every_query: bool = False
+    #: How a query is entered into Google's search box: "type" key by key,
+    #: "insert" all at once, "words" one word at a time.
+    input: str = "type"
+    #: Which queries open the results page directly instead of going through
+    #: the box: "follow-ups" (all but an exit's first), "all" or "none".
+    direct: str = "follow-ups"
     #: Leave each query's last results page for about:blank once it is read,
     #: so the scripts and requests Google starts after the page has loaded
     #: stop with it. They are most of a page's traffic.
@@ -210,6 +214,10 @@ class Settings:
             raise ValueError(f"clones must be between 0 and {MAX_CLONES}")
         if self.clone_max_age <= 0:
             raise ValueError("clone_max_age must be positive")
+        if self.input not in browser.INPUT_MODES:
+            raise ValueError(f"input must be one of {', '.join(browser.INPUT_MODES)}")
+        if self.direct not in DIRECT_MODES:
+            raise ValueError(f"direct must be one of {', '.join(DIRECT_MODES)}")
         for name in ("gap_seconds", "dwell_seconds", "settle_seconds"):
             low, high = getattr(self, name)
             if not 0 <= low <= high:
@@ -680,13 +688,16 @@ class Scraper:
         A network error is the exception: the proxy or the exit failed, and a
         second page through it fails the same way after another full timeout.
         """
-        direct = identity.queries > 0 and not self.settings.type_every_query
+        mode = self.settings.direct
+        direct = mode == "all" or (mode == "follow-ups" and identity.queries > 0)
         try:
             return identity.session.search(query, direct=direct)
         except Exception as exc:
             if _NETWORK_ERROR.search(str(exc)):
                 raise
             self._event("search_retry", identity, error=describe_error(exc))
+            if mode == "all":
+                return identity.session.search(query, direct=True)
             identity.session.visit(browser.HOME_URL, 0)
             return identity.session.search(query)
 
@@ -852,6 +863,7 @@ class Scraper:
             browser_args=s.browser_args,
             rng=self._rng,
             profile_dir=profile,
+            input_mode=s.input,
         )
         try:
             session.__enter__()
@@ -899,6 +911,7 @@ class Scraper:
                 timezone_id=s.timezone_id,
                 browser_args=s.browser_args,
                 rng=self._rng,
+                input_mode=s.input,
             )
 
         try:

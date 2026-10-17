@@ -106,3 +106,24 @@ def test_blank_leaves_the_results_page_and_the_next_direct_search_still_works(lo
         assert classify("https://www.google.com/search", after.html).served
     finally:
         session.close()
+
+
+@pytest.mark.parametrize("mode", ["insert", "words"])
+def test_insert_and_words_put_the_whole_query_in_the_box(local_google, mode):
+    try:
+        session = browser.BrowserSession(None, headless=True, input_mode=mode).__enter__()
+    except Exception as exc:  # browser binary missing on this machine
+        pytest.skip(f"no Patchright browser: {exc}")
+    try:
+        first = session.search("swim lessons near me")
+        again = session.search("pool hours")  # replaces the previous query in the box
+        assert "q=swim+lessons+near+me" in first.url
+        assert "q=pool+hours" in again.url and "swim" not in again.url
+        assert "type" in again.timings
+    finally:
+        session.close()
+
+
+def test_an_unknown_input_mode_is_refused():
+    with pytest.raises(ValueError):
+        browser.BrowserSession(None, input_mode="paste")

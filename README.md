@@ -105,10 +105,12 @@ the cost per 1000 pages to the summary.
 
 1. **New identity**: a sticky proxy session and a fresh browser profile.
 2. **Warm-up**: a few ordinary pages, then Google's front page.
-3. **Search**: an exit's first query is typed into the box and submitted;
-   later queries on the same exit open the results page directly, which is
-   faster and skips the autocomplete traffic of typing (`--type-every-query`
-   types them all).
+3. **Search**: an exit's first query goes into Google's search box and is
+   submitted; later queries on the same exit open the results page directly,
+   which is faster and skips the autocomplete traffic of typing. `--input`
+   sets how a query goes into the box (`type` key by key, `insert` all at
+   once, `words` word by word) and `--direct` which queries skip the box
+   (`follow-ups`, `all` or `none`).
 4. **Check before parsing**: the page is classified first, so a captcha or a
    block is reported as one and never parsed as an empty result.
 5. **Keep or drop**: an exit Google answers is reused for the next queries; an

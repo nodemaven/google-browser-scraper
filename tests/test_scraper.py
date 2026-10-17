@@ -692,10 +692,34 @@ def test_an_exits_first_query_is_typed_and_the_rest_open_the_results_page():
     assert FakeSession.opened[0].direct == [False, True, True]
 
 
-def test_every_query_is_typed_when_asked():
-    settings = Settings(type_every_query=True, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+def test_every_query_goes_through_the_box_with_direct_none():
+    settings = Settings(direct="none", gap_seconds=(0, 0), dwell_seconds=(0, 0))
     list(scraper([[SERVED, SERVED]], settings).run(["a", "b"]))
     assert FakeSession.opened[0].direct == [False, False]
+
+
+def test_every_query_opens_the_results_page_with_direct_all():
+    settings = Settings(direct="all", gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    list(scraper([[SERVED, SERVED]], settings).run(["a", "b"]))
+    assert FakeSession.opened[0].direct == [True, True]
+
+
+def test_with_direct_all_a_retry_stays_off_the_box():
+    settings = Settings(direct="all", gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    list(scraper([[SERVED, TimeoutError("goto"), SERVED]], settings).run(["a", "b"]))
+    session = FakeSession.opened[0]
+    assert session.direct == [True, True, True]
+    assert session.visited.count("https://www.google.com/?hl=en") == 0
+
+
+def test_the_input_mode_reaches_the_browser_and_bad_modes_are_refused():
+    settings = Settings(input="words", gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    list(scraper([[SERVED]], settings).run(["a"]))
+    assert FakeSession.opened[0].options["input_mode"] == "words"
+    with pytest.raises(ValueError):
+        Settings(input="paste")
+    with pytest.raises(ValueError):
+        Settings(direct="sometimes")
 
 
 def test_a_retry_after_a_browser_error_types_from_the_front_page():

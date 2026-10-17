@@ -9,13 +9,13 @@ import shlex
 import sys
 from pathlib import Path
 
-from . import __version__, engines, warmup
+from . import __version__, browser, engines, warmup
 from .classify import classify
 from .output import WRITERS, open_writer, use_utf8
 from .parse import parse_serp
 from .pool import Pool
 from .proxy import NodeMavenSource, ProxyTemplate
-from .scraper import ExitsRefused, Scraper, Settings
+from .scraper import DIRECT_MODES, ExitsRefused, Scraper, Settings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,10 +143,18 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         help="minutes copied cookies stay in use (default 180)",
     )
     p.add_argument(
-        "--type-every-query",
-        action="store_true",
-        help="type every query into Google's box; by default only an exit's first "
-        "query is typed and later ones open the results page directly",
+        "--input",
+        choices=browser.INPUT_MODES,
+        default="type",
+        help="how a query is entered into Google's search box: typed key by key "
+        "(default), inserted at once, or inserted word by word",
+    )
+    p.add_argument(
+        "--direct",
+        choices=DIRECT_MODES,
+        default="follow-ups",
+        help="which queries open the results page directly instead of going through "
+        "the search box: an exit's later queries (default), all, or none",
     )
     p.add_argument(
         "--stop-after-read",
@@ -226,7 +234,8 @@ def _build(args, *, pages: int = 1, worker: int | None = None) -> tuple[Scraper,
         spare=args.spare,
         clones=args.clone,
         clone_max_age=args.clone_max_age * 60,
-        type_every_query=args.type_every_query,
+        input=args.input,
+        direct=args.direct,
         stop_after_read=args.stop_after_read,
         gap_seconds=args.gap,
         headless=args.headless,
