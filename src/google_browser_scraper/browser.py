@@ -6,7 +6,10 @@
 - `locale` is never set: setting it through the context makes the main thread
   and Web Workers disagree. `timezone_id` goes through CDP emulation and agrees
   in workers, and is off unless asked for.
-- The query is typed into the box, not sent as `/search?q=`.
+- The first query on an exit is typed into the box. Later ones on the same
+  exit can go straight to `/search?q=` (`direct=True`): once Google has served
+  the exit, it serves those as readily, faster and without the autocomplete
+  traffic each keystroke fires.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field, replace
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 HOME_URL = "https://www.google.com/?hl=en"
 SEARCH_BOX = "textarea[name='q'], input[name='q']"
@@ -163,8 +167,11 @@ class BrowserSession:
 
     # -- searching -----------------------------------------------------------
 
-    def search(self, query: str) -> Fetched:
-        """Type `query` into Google's box and return the page it led to."""
+    def search(self, query: str, direct: bool = False) -> Fetched:
+        """Type `query` into Google's box and return the page it led to; with
+        `direct`, open the results page for it instead."""
+        if direct:
+            return self._search_direct(query)
         page = self.page
         timings: dict[str, float] = {}
         mark = time.monotonic()
@@ -200,6 +207,17 @@ class BrowserSession:
         fetched = self._snapshot(nav.value, dismissed)
         return replace(fetched, timings={**timings, **fetched.timings})
 
+    def _search_direct(self, query: str) -> Fetched:
+        home = urlsplit(HOME_URL)
+        url = urlunsplit(
+            (home.scheme, home.netloc, "/search", urlencode({"q": query, "hl": "en"}), "")
+        )
+        mark = time.monotonic()
+        response = self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        load = round(time.monotonic() - mark, 2)
+        fetched = self._snapshot(response, False)
+        return replace(fetched, timings={"load": load, **fetched.timings})
+
     def _box_visible(self) -> bool:
         try:
             return any(h.is_visible() for h in self.page.query_selector_all(SEARCH_BOX))
@@ -222,6 +240,10 @@ class BrowserSession:
             box.press("ControlOrMeta+a")
         box.type(query, delay=self._rng.randint(45, 140))
         return box
+
+    def blank(self) -> None:
+        """Leave the current page, stopping whatever it is still loading."""
+        self.page.goto("about:blank")
 
     def next_page(self) -> Fetched | None:
         """Click "Next" on the current results page, if there is one."""

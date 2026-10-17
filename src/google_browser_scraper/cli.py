@@ -138,9 +138,21 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--clone-max-age",
         type=float,
-        default=60.0,
+        default=180.0,
         metavar="MIN",
-        help="minutes copied cookies stay in use (default 60)",
+        help="minutes copied cookies stay in use (default 180)",
+    )
+    p.add_argument(
+        "--type-every-query",
+        action="store_true",
+        help="type every query into Google's box; by default only an exit's first "
+        "query is typed and later ones open the results page directly",
+    )
+    p.add_argument(
+        "--stop-after-read",
+        action="store_true",
+        help="leave each results page for about:blank once it is read (experimental: "
+        "saves traffic Google's late scripts would spend)",
     )
     p.add_argument(
         "--gap",
@@ -214,6 +226,8 @@ def _build(args, *, pages: int = 1, worker: int | None = None) -> tuple[Scraper,
         spare=args.spare,
         clones=args.clone,
         clone_max_age=args.clone_max_age * 60,
+        type_every_query=args.type_every_query,
+        stop_after_read=args.stop_after_read,
         gap_seconds=args.gap,
         headless=args.headless,
         channel=args.channel,

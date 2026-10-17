@@ -186,6 +186,20 @@ def test_direct_mode_counts_without_an_upstream(echo):
     assert relay.total >= 6
 
 
+def test_bytes_are_counted_per_target_host(echo):
+    relay = Relay(None)
+    address = relay.start()
+    try:
+        _tunnel(address, f"127.0.0.1:{echo}", b"a" * 300)
+        _tunnel(address, f"LOCALHOST:{echo}", b"b" * 100)
+    finally:
+        relay.stop()
+    hosts = relay.hosts()
+    assert set(hosts) == {"127.0.0.1", "localhost"}
+    assert hosts["127.0.0.1"] > hosts["localhost"] >= 200
+    assert sum(hosts.values()) == relay.total
+
+
 def test_only_http_upstreams_are_accepted():
     with pytest.raises(ValueError):
         Relay({"server": "socks5://127.0.0.1:1080"})

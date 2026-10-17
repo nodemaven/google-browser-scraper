@@ -93,6 +93,9 @@ class LinkResolver:
     def bytes(self) -> int:
         return self._relay.total if self._relay is not None else 0
 
+    def hosts(self) -> dict[str, int]:
+        return self._relay.hosts() if self._relay is not None else {}
+
     def resolve(self, goto_url: str) -> str | None:
         if not self.enabled:
             return None

@@ -74,3 +74,35 @@ def test_a_page_navigating_during_the_box_check_sends_the_browser_home():
     session = browser.BrowserSession(None)
     session.page = Navigating()
     assert session._box_visible() is False
+
+
+def test_a_direct_search_opens_the_results_page_for_the_query(local_google):
+    try:
+        session = browser.BrowserSession(None, headless=True).__enter__()
+    except Exception as exc:  # browser binary missing on this machine
+        pytest.skip(f"no Patchright browser: {exc}")
+    try:
+        typed = session.search("swim lessons")
+        direct = session.search("pool near me", direct=True)
+        assert "q=swim+lessons" in typed.url
+        assert urlsplit(direct.url).path == "/search" and "q=pool+near+me" in direct.url
+        assert classify("https://www.google.com/search", direct.html).served
+        assert "type" not in direct.timings and "load" in direct.timings
+    finally:
+        session.close()
+
+
+def test_blank_leaves_the_results_page_and_the_next_direct_search_still_works(local_google):
+    try:
+        session = browser.BrowserSession(None, headless=True).__enter__()
+    except Exception as exc:  # browser binary missing on this machine
+        pytest.skip(f"no Patchright browser: {exc}")
+    try:
+        session.search("swim lessons")
+        session.blank()
+        assert session.page.url == "about:blank"
+        after = session.search("pool near me", direct=True)
+        assert "q=pool+near+me" in after.url
+        assert classify("https://www.google.com/search", after.html).served
+    finally:
+        session.close()

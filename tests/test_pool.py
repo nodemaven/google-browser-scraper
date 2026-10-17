@@ -9,7 +9,7 @@ from test_scraper import REFUSED, SERVED, FakeRelay, FakeSession
 from google_browser_scraper.cli import main
 from google_browser_scraper.pool import Pool, merge_stats
 from google_browser_scraper.proxy import ProxyTemplate
-from google_browser_scraper.scraper import ExitsRefused, Scraper, Settings
+from google_browser_scraper.scraper import Breaker, ExitsRefused, Scraper, Settings, Templates
 
 
 class Recording(FakeSession):
@@ -18,22 +18,23 @@ class Recording(FakeSession):
         self.worker = worker
         self.thread = threading.get_ident()
 
-    def search(self, query):
+    def search(self, query, direct=False):
         # Long enough that one worker cannot drain the queue before the other
         # starts; the tests below are about sharing it.
         time.sleep(0.01)
-        return super().search(query)
+        return super().search(query, direct)
 
 
-def pool(scripts_per_worker, settings=None):
-    """`scripts_per_worker[i]` is the list of identity scripts worker i mints."""
+def pool(scripts_per_worker, settings=None, cls=Recording, on_event=None, start=None):
+    """`scripts_per_worker[i]` is the list of identity scripts worker i mints.
+    `start` stands in for the pool's wait before each worker starts."""
     FakeSession.opened = []
     FakeRelay.by_address = {}
     queues = [list(scripts) for scripts in scripts_per_worker]
 
     def make(i):
         def factory(proxy, **options):
-            return Recording(proxy, script=queues[i].pop(0), worker=i, **options)
+            return cls(proxy, script=queues[i].pop(0), worker=i, **options)
 
         return Scraper(
             ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
@@ -42,9 +43,10 @@ def pool(scripts_per_worker, settings=None):
             relay_factory=FakeRelay,
             resolver_factory=None,
             sleep=lambda seconds: None,
+            on_event=on_event,
         )
 
-    return Pool(make, len(scripts_per_worker), sleep=lambda seconds: None)
+    return Pool(make, len(scripts_per_worker), sleep=start or (lambda seconds: None))
 
 
 def test_every_query_is_answered_once_across_the_workers():
@@ -103,3 +105,117 @@ def test_merge_stats_of_nothing_is_empty():
 def test_the_command_line_refuses_a_worker_count_out_of_range(workers, capsys):
     assert main(["search", "x", "--no-proxy", "--workers", workers]) == 1
     assert "workers must be between" in capsys.readouterr().err
+
+
+def test_one_worker_drawing_refused_exits_does_not_stop_a_pool_another_serves():
+    # Worker 0's k-th refusal waits until worker 1 has delivered k records, so
+    # a served page lands between any two of worker 0's refusals. A breaker of
+    # 2 per worker would stop the pool on worker 0's second refusal.
+    delivered = {"n": 0}
+    turn = threading.Condition()
+    refusals = {"n": 0}
+
+    class Waiting(Recording):
+        def search(self, query, direct=False):
+            if self.worker == 0 and self.script and self.script[0] is REFUSED:
+                refusals["n"] += 1
+                wanted = refusals["n"]
+                with turn:
+                    turn.wait_for(lambda: delivered["n"] >= wanted, timeout=5)
+            return super().search(query, direct)
+
+    settings = Settings(breaker=2, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    worker0 = [[REFUSED], [REFUSED], [REFUSED]] + [[SERVED] * 20 for _ in range(3)]
+    p = pool([worker0, [[SERVED] * 50]], settings, cls=Waiting)
+    queries = [f"q{i}" for i in range(20)]
+    records = []
+    for r in p.run(queries):
+        records.append(r)
+        if r["search_metadata"]["worker"] == 1:
+            with turn:
+                delivered["n"] += 1
+                turn.notify_all()
+    assert sorted(r["search_parameters"]["q"] for r in records) == sorted(queries)
+    assert p.not_run == []
+    assert refusals["n"] == 3
+
+
+def test_a_pool_still_stops_when_no_worker_is_served():
+    settings = Settings(breaker=3, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    p = pool([[[REFUSED] for _ in range(5)], [[REFUSED] for _ in range(5)]], settings)
+    with pytest.raises(ExitsRefused, match="none served in between"):
+        list(p.run([f"q{i}" for i in range(10)]))
+    assert len(FakeSession.opened) <= 4  # three in a row across the pool, plus one in flight
+
+
+def test_a_worker_starts_from_the_template_another_worker_left():
+    made = threading.Event()
+    events = []
+
+    def on_event(e):
+        events.append(e)
+        if e["event"] == "template":
+            made.set()
+
+    settings = Settings(
+        clones=3,
+        max_queries_per_exit=50,
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        settle_seconds=(0, 0),
+    )
+    # Worker 1 starts only once worker 0 has left a template.
+    p = pool(
+        [[[SERVED] * 30 for _ in range(3)], [[SERVED] * 30 for _ in range(3)]],
+        settings,
+        on_event=on_event,
+        start=lambda seconds: made.wait(5) if seconds else None,
+    )
+    records = list(p.run([f"q{i}" for i in range(12)]))
+    assert all(r["search_metadata"]["status"] == "Success" for r in records)
+    first_of_worker1 = next(s for s in FakeSession.opened if s.worker == 1)
+    assert first_of_worker1.visited == []  # a copy, not a fresh warm-up
+    assert "profile_dir" in first_of_worker1.options
+    assert [e["event"] for e in events].count("template") == 1
+    assert p.stats.clones == 1
+
+
+def test_a_scraper_leaves_a_shared_template_for_its_owner_to_drop():
+    from test_scraper import scraper
+
+    templates, breaker = Templates(3, 3600.0), Breaker(6)
+    s = scraper(
+        [[SERVED, SERVED]],
+        Settings(clones=3, max_queries_per_exit=5, gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+    )
+    s.share(breaker, templates)
+    list(s.run(["a", "b"]))
+    assert templates.present()  # another worker may still copy it
+    templates.drop("run finished", lambda e: None)
+    assert not templates.present()
+
+
+def test_a_refused_copy_drops_only_the_template_it_came_from(tmp_path):
+    dropped = []
+    templates = Templates(3, 3600.0)
+    for name in ("old", "new"):
+        (tmp_path / name).mkdir()
+    assert templates.claim()
+    templates.put(str(tmp_path / "old"))
+    templates.drop("too old", dropped.append)
+    assert templates.claim()
+    templates.put(str(tmp_path / "new"))
+    templates.drop("a copy was refused on its first query", dropped.append, generation=1)
+    assert templates.present() and len(dropped) == 1
+    templates.drop("a copy was refused on its first query", dropped.append, generation=2)
+    assert not templates.present()
+
+
+def test_only_one_worker_at_a_time_may_leave_a_template(tmp_path):
+    templates = Templates(3, 3600.0)
+    assert templates.claim()
+    assert not templates.claim() and not templates.wanted()
+    templates.abort()
+    assert templates.wanted() and templates.claim()
+    templates.put(str(tmp_path))
+    assert not templates.claim()

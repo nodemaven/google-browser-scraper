@@ -26,7 +26,11 @@ class FakeRelay:
 
     def __init__(self, upstream):
         self.upstream, self.total, self.stopped = upstream, 0, False
+        self.by_host = {}
         self.refusal = FakeRelay.refusal
+
+    def hosts(self):
+        return dict(self.by_host)
 
     def start(self):
         address = f"http://127.0.0.1:{len(FakeRelay.by_address) + 1}"
@@ -38,6 +42,7 @@ class FakeRelay:
 
 
 WARM_BYTES, PAGE_BYTES = 1_000, 500_000
+WARM_HOST, GOOGLE_HOST = "warm.example", "www.google.com"
 
 
 COOKIES = os.path.join("Default", "Network", "Cookies")
@@ -54,7 +59,9 @@ class FakeSession:
         self.relay = FakeRelay.by_address.get((proxy or {}).get("server"))
         self.script, self.warm_ok = script, warm_ok
         self.visited, self.searched, self.closed = [], [], False
+        self.direct = []
         self.suspended = 0
+        self.blanks = 0
         # A profile on disk, so copying it can be checked: the cookie database
         # names the session the profile was first made for, and a cache file
         # stands for everything a copy should leave behind.
@@ -73,9 +80,10 @@ class FakeSession:
                     fh.write(text)
         FakeSession.opened.append(self)
 
-    def _spend(self, n):
+    def _spend(self, n, host):
         if self.relay is not None:
             self.relay.total += n
+            self.relay.by_host[host] = self.relay.by_host.get(host, 0) + n
 
     def __enter__(self):
         return self
@@ -99,18 +107,22 @@ class FakeSession:
 
     def visit(self, url, dwell):
         self.visited.append(url)
-        self._spend(WARM_BYTES)
+        self._spend(WARM_BYTES, WARM_HOST)
         return self.warm_ok
 
-    def search(self, query):
+    def search(self, query, direct=False):
         self.searched.append(query)
-        self._spend(PAGE_BYTES)
+        self.direct.append(direct)
+        self._spend(PAGE_BYTES, GOOGLE_HOST)
         return self._next()
+
+    def blank(self):
+        self.blanks += 1
 
     def next_page(self):
         if not self.script:
             return None
-        self._spend(PAGE_BYTES)
+        self._spend(PAGE_BYTES, GOOGLE_HOST)
         return self._next()
 
     def _next(self):
@@ -372,6 +384,9 @@ def test_unresolved_links_are_filled_by_the_resolver_on_a_session_of_its_own():
         def close(self):
             self.closed = True
 
+        def hosts(self):
+            return {}
+
     FakeSession.opened, FakeRelay.by_address = [], {}
     scripts = [[SERVED, SERVED]]
     s = Scraper(
@@ -465,9 +480,9 @@ def test_a_spare_keeps_its_browser_on_one_thread_of_its_own():
             self.threads.add(threading.get_ident())
             return super().visit(url, dwell)
 
-        def search(self, query):
+        def search(self, query, direct=False):
             self.threads.add(threading.get_ident())
-            return super().search(query)
+            return super().search(query, direct)
 
         def close(self):
             self.threads.add(threading.get_ident())
@@ -670,3 +685,94 @@ def test_a_record_says_where_its_time_went():
     timings = record["search_metadata"]["timings"]
     assert timings["type"] == 2.5 and timings["load"] == 3.0
     assert "parse" in timings and "links" not in timings  # no resolver in these tests
+
+
+def test_an_exits_first_query_is_typed_and_the_rest_open_the_results_page():
+    list(scraper([[SERVED, SERVED, SERVED], [SERVED]]).run(["a", "b", "c"]))
+    assert FakeSession.opened[0].direct == [False, True, True]
+
+
+def test_every_query_is_typed_when_asked():
+    settings = Settings(type_every_query=True, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    list(scraper([[SERVED, SERVED]], settings).run(["a", "b"]))
+    assert FakeSession.opened[0].direct == [False, False]
+
+
+def test_a_retry_after_a_browser_error_types_from_the_front_page():
+    list(scraper([[SERVED, TimeoutError("click"), SERVED]]).run(["a", "b"]))
+    assert FakeSession.opened[0].direct == [False, True, False]
+
+
+def test_copied_cookies_are_used_for_three_hours_by_default():
+    assert Settings().clone_max_age == 3 * 3600
+
+
+def test_traffic_is_split_by_host_for_the_warm_up_the_pages_and_the_run():
+    events = []
+    s = scraper([[SERVED, SERVED]], events=events)
+    list(s.run(["a", "b"]))
+    minted = next(e for e in events if e["event"] == "minted")
+    retired = next(e for e in events if e["event"] == "retired")
+    warm = WARM_BYTES * minted["warm_pages"]
+    assert minted["warm_hosts"] == {WARM_HOST: warm}
+    assert retired["page_hosts"] == {GOOGLE_HOST: 2 * PAGE_BYTES}
+    assert retired["hosts"] == {GOOGLE_HOST: 2 * PAGE_BYTES, WARM_HOST: warm}
+    by_host = s.stats.summary()["traffic_by_host_mb"]
+    assert list(by_host) == [GOOGLE_HOST, WARM_HOST]
+    assert by_host[GOOGLE_HOST] == round(2 * PAGE_BYTES / 2**20, 2)
+
+
+def test_links_resolve_while_the_browser_goes_on_to_the_next_query():
+    import threading
+
+    second_search = threading.Event()
+
+    class Resolver:
+        resolved = failed = bytes = 0
+
+        def __init__(self, upstream, relay_factory=None):
+            pass
+
+        def fill(self, results):
+            # Blocking here until the browser has started query "b" proves the
+            # browser did not wait for this page's links.
+            assert second_search.wait(5)
+            for r in results:
+                if r["link"] is None and "/goto?" in (r.get("redirect_link") or ""):
+                    r["link"] = "https://resolved.example/"
+
+        def close(self):
+            pass
+
+        def hosts(self):
+            return {}
+
+    class Session(FakeSession):
+        def search(self, query, direct=False):
+            if query == "b":
+                second_search.set()
+            return super().search(query, direct)
+
+    FakeSession.opened, FakeRelay.by_address = [], {}
+    scripts = [[SERVED, SERVED]]
+    s = Scraper(
+        ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
+        Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+        session_factory=lambda proxy, **o: Session(proxy, script=scripts.pop(0), **o),
+        relay_factory=FakeRelay,
+        resolver_factory=Resolver,
+        sleep=lambda x: None,
+    )
+    records = list(s.run(["a", "b"]))
+    assert [r["search_parameters"]["q"] for r in records] == ["a", "b"]
+    for r in records:
+        assert r["organic_results"][2]["link"] == "https://resolved.example/"
+        assert "links" in r["search_metadata"]["timings"]
+
+
+def test_stop_after_read_leaves_the_page_after_each_query_and_only_when_asked():
+    list(scraper([[SERVED, SERVED]]).run(["a", "b"]))
+    assert FakeSession.opened[0].blanks == 0
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), stop_after_read=True)
+    list(scraper([[SERVED, SERVED]], settings).run(["a", "b"]))
+    assert FakeSession.opened[0].blanks == 2

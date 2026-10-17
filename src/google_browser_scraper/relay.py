@@ -60,6 +60,7 @@ class Relay:
         self.tunnels = 0
         self.failures = 0
         self.blocked = 0
+        self._hosts: dict[str, int] = {}
         #: Status line of the last CONNECT the upstream proxy refused, such as
         #: `HTTP/1.1 402 traffic exhausted`. The browser only reports a failed
         #: tunnel; this is the proxy's reason.
@@ -99,6 +100,11 @@ class Relay:
     def total(self) -> int:
         with self._lock:
             return self.bytes_up + self.bytes_down
+
+    def hosts(self) -> dict[str, int]:
+        """Bytes both ways per target host, the CONNECT exchange included."""
+        with self._lock:
+            return dict(self._hosts)
 
     # -- serving ---------------------------------------------------------------
 
@@ -162,9 +168,9 @@ class Relay:
                     f"{self._auth}Proxy-Connection: Keep-Alive\r\n\r\n"
                 ).encode()
                 upstream.sendall(request)
-                self._count(up=len(request))
+                self._count(up=len(request), host=host)
                 reply = _read_head(upstream)
-                self._count(down=len(reply))
+                self._count(down=len(reply), host=host)
                 if _status(reply) != 200:
                     # Pass the gateway's own answer through: its status is the
                     # evidence (a bad parameter is 406 or 407 on some gateways).
@@ -184,12 +190,13 @@ class Relay:
         except OSError:
             _close(upstream)
             return
-        self._pump(client, upstream)
+        self._pump(client, upstream, host)
 
     def _forward(self, client: socket.socket, head: str) -> None:
         """Plain HTTP in absolute-URI form (revocation checks, http:// redirects)."""
         target = urlsplit(head.split("\r\n", 1)[0].split(" ")[1])
-        if (target.hostname or "") in self.block_hosts:
+        host = (target.hostname or "").lower()
+        if host in self.block_hosts:
             self._refuse(client)
             return
         lines = [ln for ln in head.split("\r\n") if not ln.lower().startswith("proxy-")]
@@ -207,13 +214,13 @@ class Relay:
                 rebuilt = lines[0] + "\r\n" + self._auth + "\r\n".join(lines[1:])
             data = rebuilt.encode("latin-1")
             upstream.sendall(data)
-            self._count(up=len(data))
+            self._count(up=len(data), host=host)
         except OSError:
             self._fail()
             return
-        self._pump(client, upstream)
+        self._pump(client, upstream, host)
 
-    def _pump(self, client: socket.socket, upstream: socket.socket) -> None:
+    def _pump(self, client: socket.socket, upstream: socket.socket, host: str) -> None:
         """Copy both ways until either end closes, counting per chunk so a
         keep-alive tunnel's bytes land on the page that used them."""
         client.settimeout(None)
@@ -231,19 +238,21 @@ class Relay:
                         return
                     if source is client:
                         upstream.sendall(data)
-                        self._count(up=len(data))
+                        self._count(up=len(data), host=host)
                     else:
                         client.sendall(data)
-                        self._count(down=len(data))
+                        self._count(down=len(data), host=host)
         except OSError:
             pass
         finally:
             _close(upstream)
 
-    def _count(self, *, up: int = 0, down: int = 0) -> None:
+    def _count(self, *, up: int = 0, down: int = 0, host: str = "") -> None:
         with self._lock:
             self.bytes_up += up
             self.bytes_down += down
+            if host:
+                self._hosts[host] = self._hosts.get(host, 0) + up + down
 
 
 def _read_head(sock: socket.socket) -> str:

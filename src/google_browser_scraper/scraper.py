@@ -49,6 +49,10 @@ from .relay import Relay
 MB = 1024 * 1024
 MAX_SPARES = 3
 MAX_CLONES = 50
+TOP_HOSTS = 10
+#: Records held back while their links resolve in the background; past this
+#: the run waits for the oldest instead of opening more pages ahead of it.
+MAX_HELD = 3
 
 
 _CREDENTIALS = re.compile(r"//[^/\s:@]+:[^@\s]+@")
@@ -179,8 +183,17 @@ class Settings:
     #: New exits started from copies of the first served exit's profile,
     #: instead of each warming its own. 0 turns copying off.
     clones: int = 0
-    #: Seconds after which the copied profile is not used any more.
-    clone_max_age: float = 3600.0
+    #: Seconds after which the copied profile is not used any more. Copies of a
+    #: template well past an hour old keep being served; one that is refused
+    #: on its first query ends the template whatever its age.
+    clone_max_age: float = 3 * 3600.0
+    #: Type every query into the box. By default only an exit's first query is
+    #: typed and later ones open the results page directly.
+    type_every_query: bool = False
+    #: Leave each query's last results page for about:blank once it is read,
+    #: so the scripts and requests Google starts after the page has loaded
+    #: stop with it. They are most of a page's traffic.
+    stop_after_read: bool = False
     #: Wait between relaunching a warmed profile and its first search: a
     #: search the moment the browser starts is refused far more often.
     settle_seconds: tuple[float, float] = (40.0, 60.0)
@@ -210,6 +223,119 @@ class Template:
     path: str
     made_at: float
     left: int
+    generation: int = 0
+
+
+class Templates:
+    """The served cookie jar new exits start from, one at a time.
+
+    In a pool every worker shares one: any worker's served exit can leave it,
+    any worker can start copies from it, and a copy refused on its first query
+    ends it for all of them. Copying from it and dropping it hold the same lock,
+    so no worker copies a folder another one is deleting.
+    """
+
+    def __init__(self, copies: int, max_age: float) -> None:
+        self.copies = copies
+        self.max_age = max_age
+        self._lock = threading.Lock()
+        self._current: Template | None = None
+        self._making = False
+        self._generation = 0
+
+    def wanted(self) -> bool:
+        """Whether a served exit should leave a template now."""
+        with self._lock:
+            return bool(self.copies) and self._current is None and not self._making
+
+    def present(self) -> bool:
+        with self._lock:
+            return self._current is not None
+
+    def claim(self) -> bool:
+        """Reserve the making of the next template; False if someone else has."""
+        with self._lock:
+            if not self.copies or self._current is not None or self._making:
+                return False
+            self._making = True
+            return True
+
+    def put(self, path: str) -> None:
+        with self._lock:
+            self._making = False
+            self._generation += 1
+            self._current = Template(path, time.monotonic(), self.copies, self._generation)
+
+    def abort(self) -> None:
+        with self._lock:
+            self._making = False
+
+    def checkout(self, emit: Callable[[dict], None]) -> tuple[str, int] | None:
+        """A new profile copied from the template, and the template's generation;
+        None when there is no template left to copy."""
+        with self._lock:
+            t = self._current
+            if t is None:
+                return None
+            if t.left <= 0:
+                self._drop(t, "all copies used", emit)
+                return None
+            if time.monotonic() - t.made_at > self.max_age:
+                self._drop(t, "too old", emit)
+                return None
+            t.left -= 1
+            profile = tempfile.mkdtemp(prefix="gbs-clone-")
+            try:
+                _copy_profile(t.path, profile)
+            except BaseException:
+                shutil.rmtree(profile, ignore_errors=True)
+                raise
+            return profile, t.generation
+
+    def drop(
+        self, reason: str, emit: Callable[[dict], None], generation: int | None = None
+    ) -> None:
+        """Drop the template; with `generation`, only if it is still that one."""
+        with self._lock:
+            t = self._current
+            if t is not None and (generation is None or t.generation == generation):
+                self._drop(t, reason, emit)
+
+    def _drop(self, t: Template, reason: str, emit: Callable[[dict], None]) -> None:
+        self._current = None
+        shutil.rmtree(t.path, ignore_errors=True)
+        emit({"event": "template_dropped", "reason": reason, "unused": t.left})
+
+
+class Breaker:
+    """Exits refused or unreachable in a row, across every worker sharing it.
+
+    A served page anywhere resets the count. One worker meeting refusal after
+    refusal while another keeps being served has drawn bad exits; the hour and
+    the pool are fine, so the run carries on. It stops when nobody is served.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self._count = 0
+        self._lock = threading.Lock()
+
+    def served(self) -> None:
+        with self._lock:
+            self._count = 0
+
+    reset = served
+
+    def failed(self) -> None:
+        with self._lock:
+            self._count += 1
+            count = self._count
+        if count >= self.limit:
+            raise ExitsRefused(
+                f"{count} exits in a row were refused or unreachable, none served in "
+                "between. Stopping rather than spending more traffic: check the proxy, "
+                "the machine (`google-browser-scraper doctor`) and the hour, then retry."
+            )
 
 
 @dataclass
@@ -226,9 +352,26 @@ class Identity:
     ready_at: float = 0.0
     #: Started from a copy of another identity's profile, not warmed itself.
     clone: bool = False
+    #: The generation of the template a copy was started from.
+    template: int | None = None
+    #: Bytes per host by the end of the warm-up, and inside served pages.
+    warm_hosts: dict[str, int] = field(default_factory=dict)
+    page_hosts: dict[str, int] = field(default_factory=dict)
+    _window: dict[str, int] = field(default_factory=dict, repr=False)
 
     def bytes(self) -> int | None:
         return self.relay.total if self.relay is not None else None
+
+    def hosts(self) -> dict[str, int]:
+        return self.relay.hosts() if self.relay is not None else {}
+
+    def open_window(self) -> int | None:
+        """Start counting a page; returns what `bytes()` returns."""
+        self._window = self.hosts()
+        return self.bytes()
+
+    def close_window(self) -> None:
+        _add_hosts(self.page_hosts, self.hosts(), minus=self._window)
 
     def info(self, level: str, page_bytes: int | None = None) -> dict[str, Any]:
         return {
@@ -257,10 +400,14 @@ class Stats:
     links_resolved: int = 0
     links_failed: int = 0
     counted: bool = True
+    bytes_by_host: dict[str, int] = field(default_factory=dict)
     _open: list = field(default_factory=list, repr=False)
 
     def summary(self, price_per_gb: float | None = None) -> dict[str, Any]:
         total = self.bytes_total + sum(i.bytes() or 0 for i in self._open)
+        by_host = dict(self.bytes_by_host)
+        for identity in self._open:
+            _add_hosts(by_host, identity.hosts())
         out: dict[str, Any] = {
             "identities": self.identities,
             "clones": self.clones,
@@ -279,7 +426,27 @@ class Stats:
                 out["mb_per_served_page"] = round(per_page, 2)
                 if price_per_gb is not None:
                     out["cost_per_1000_pages"] = round(per_page / 1024 * price_per_gb * 1000, 2)
+            if by_host:
+                top = sorted(by_host.items(), key=lambda item: -item[1])[:TOP_HOSTS]
+                out["traffic_by_host_mb"] = {host: round(n / MB, 2) for host, n in top}
         return out
+
+
+def _fill_links(resolver, record: dict[str, Any]) -> None:
+    mark = time.monotonic()
+    resolver.fill(record.get("organic_results") or [])
+    record["search_metadata"].setdefault("timings", {})["links"] = round(time.monotonic() - mark, 2)
+
+
+def _by_size(hosts: dict[str, int]) -> dict[str, int]:
+    return dict(sorted(hosts.items(), key=lambda item: -item[1]))
+
+
+def _add_hosts(into: dict[str, int], more: dict[str, int], minus: dict[str, int] | None = None):
+    for host, n in more.items():
+        n -= (minus or {}).get(host, 0)
+        if n:
+            into[host] = into.get(host, 0) + n
 
 
 class Pinned:
@@ -308,11 +475,14 @@ class Pinned:
     def visit(self, url: str, dwell_seconds: float) -> bool:
         return self._call(self.session.visit, url, dwell_seconds)
 
-    def search(self, query: str) -> Any:
-        return self._call(self.session.search, query)
+    def search(self, query: str, direct: bool = False) -> Any:
+        return self._call(self.session.search, query, direct)
 
     def next_page(self) -> Any:
         return self._call(self.session.next_page)
+
+    def blank(self) -> None:
+        self._call(self.session.blank)
 
     def suspend(self) -> str:
         return self._call(self.session.suspend)
@@ -352,6 +522,8 @@ class Scraper:
         self._relay_factory = relay_factory
         self._resolver_factory = resolver_factory
         self._resolver = None
+        self._link_pool: ThreadPoolExecutor | None = None
+        self._link_jobs: dict[int, Future] = {}
         self._sleep = sleep
         self._rng = rng or random.Random()
         self._emit = on_event or (lambda event: None)
@@ -359,46 +531,77 @@ class Scraper:
         self._spares: deque[Future] = deque()
         self._warmer: ThreadPoolExecutor | None = None
         self._cancel = threading.Event()
-        self._template: Template | None = None
-        self._failed_exits = 0
+        self._templates = Templates(self.settings.clones, self.settings.clone_max_age)
+        self._owns_templates = True
+        self._breaker = Breaker(self.settings.breaker)
         self._saved = 0
         self.stats = Stats()
+
+    def share(self, breaker: Breaker, templates: Templates) -> None:
+        """Use a breaker and a template that other scrapers use too (see `Pool`).
+        The shared template is left for its owner to drop when this one closes."""
+        self._breaker = breaker
+        self._templates = templates
+        self._owns_templates = False
 
     # -- public --------------------------------------------------------------
 
     def run(self, queries: Iterable[str]) -> Iterator[dict[str, Any]]:
-        """Yield one record per results page, then close the last identity."""
+        """Yield one record per results page, in order, then close the last
+        identity.
+
+        A record's links resolve on a thread of their own while the browser
+        goes on to the next query; the record is yielded once they are in.
+        """
         try:
-            pending = (q.strip() for q in queries)
-            pending = (q for q in pending if q)
-            query = next(pending, None)
-            while query is not None:
-                following = next(pending, None)
-                # No spare is warmed for a run that has nothing left to ask.
-                yield from self._query(query, more=following is not None)
-                query = following
+            held: deque[dict[str, Any]] = deque()
+            for record in self._records(queries):
+                held.append(record)
+                while held and (len(held) > MAX_HELD or self._links_ready(held[0])):
+                    yield self._finish(held.popleft())
+            while held:
+                yield self._finish(held.popleft())
         finally:
             self.close()
 
+    def _records(self, queries: Iterable[str]) -> Iterator[dict[str, Any]]:
+        pending = (q.strip() for q in queries)
+        pending = (q for q in pending if q)
+        query = next(pending, None)
+        while query is not None:
+            following = next(pending, None)
+            # No spare is warmed for a run that has nothing left to ask.
+            yield from self._query(query, more=following is not None)
+            query = following
+
     def search(self, query: str) -> list[dict[str, Any]]:
         """One query, keeping the identity open for the next call (serve, MCP)."""
-        return list(self._query(query.strip()))
+        return [self._finish(r) for r in self._query(query.strip())]
 
     def prewarm(self) -> None:
         """Mint and warm an identity now, so the first query does not pay for it."""
         self._current_identity()
 
     def reset_breaker(self) -> None:
-        self._failed_exits = 0
+        self._breaker.reset()
 
     def close(self) -> None:
         if self._identity is not None:
             self._retire("run finished")
         self._discard_spares()
-        self._drop_template("run finished")
+        if self._owns_templates:
+            self._templates.drop("run finished", self._emit)
+        if self._link_pool is not None:
+            self._link_pool.shutdown(wait=True)
+            self._link_pool = None
+            self._link_jobs.clear()
         if self._resolver is not None:
             self._resolver.close()
             self.stats.bytes_total += self._resolver.bytes
+            _add_hosts(
+                self.stats.bytes_by_host,
+                {f"{host} (links)": n for host, n in self._resolver.hosts().items()},
+            )
             self.stats.links_resolved += self._resolver.resolved
             self.stats.links_failed += self._resolver.failed
             self._resolver = None
@@ -416,7 +619,7 @@ class Scraper:
                 continue
             if identity.queries:
                 self._sleep(self._rng.uniform(*s.gap_seconds))
-            started, before = time.monotonic(), identity.bytes()
+            started, before = time.monotonic(), identity.open_window()
             try:
                 fetched = self._search(identity, query)
             except Exception as exc:
@@ -431,11 +634,13 @@ class Scraper:
             self._event("query", identity, q=query, page=1, verdict=verdict.kind)
             saved = self._keep(fetched, query, 1, verdict)
             if verdict.served:
-                self._failed_exits = 0
+                self._breaker.served()
                 if more:
                     self._top_up()
                 yield self._served(query, 1, fetched, verdict, identity, started, before, saved)
                 yield from self._more_pages(query, identity)
+                if s.stop_after_read and self._identity is identity:
+                    self._leave_page(identity)
                 capped = identity.queries >= s.max_queries_per_exit
                 if self._identity is identity and more and self._wants_template(identity):
                     self._take_template(identity, reopen=not capped)
@@ -444,7 +649,9 @@ class Scraper:
                 return
             if identity.clone and identity.queries == 1:
                 # Copies are refused together with the profile they came from.
-                self._drop_template("a copy was refused on its first query")
+                self._templates.drop(
+                    "a copy was refused on its first query", self._emit, identity.template
+                )
             last_verdict, last_error = verdict, None
             self.stats.exits_refused += verdict.refused
             self._retire(verdict.kind)
@@ -473,8 +680,9 @@ class Scraper:
         A network error is the exception: the proxy or the exit failed, and a
         second page through it fails the same way after another full timeout.
         """
+        direct = identity.queries > 0 and not self.settings.type_every_query
         try:
-            return identity.session.search(query)
+            return identity.session.search(query, direct=direct)
         except Exception as exc:
             if _NETWORK_ERROR.search(str(exc)):
                 raise
@@ -485,7 +693,7 @@ class Scraper:
     def _more_pages(self, query: str, identity: Identity) -> Iterator[dict[str, Any]]:
         for page in range(2, self.settings.pages + 1):
             self._sleep(self._rng.uniform(*self.settings.gap_seconds))
-            started, before = time.monotonic(), identity.bytes()
+            started, before = time.monotonic(), identity.open_window()
             try:
                 fetched = identity.session.next_page()
             except Exception as exc:
@@ -531,17 +739,13 @@ class Scraper:
         self, query, page, fetched, verdict, identity, started, before, saved=None
     ) -> dict[str, Any]:
         after = identity.bytes()
+        identity.close_window()
         page_bytes = after - before if after is not None and before is not None else None
         self.stats.pages_served += 1
         timings = dict(getattr(fetched, "timings", None) or {})
         mark = time.monotonic()
         parsed = parse_serp(fetched.html)
         timings["parse"] = round(time.monotonic() - mark, 2)
-        resolver = self._links()
-        if resolver is not None:
-            mark = time.monotonic()
-            resolver.fill(parsed["organic_results"])
-            timings["links"] = round(time.monotonic() - mark, 2)
         record = build_record(
             query,
             page=page,
@@ -555,6 +759,25 @@ class Scraper:
         )
         if saved:
             record["search_metadata"]["raw_html_file"] = saved
+        resolver = self._links()
+        if resolver is not None:
+            if self._link_pool is None:
+                self._link_pool = ThreadPoolExecutor(1, thread_name_prefix="gbs-links")
+            self._link_jobs[id(record)] = self._link_pool.submit(_fill_links, resolver, record)
+        return record
+
+    def _links_ready(self, record: dict[str, Any]) -> bool:
+        job = self._link_jobs.get(id(record))
+        return job is None or job.done()
+
+    def _finish(self, record: dict[str, Any]) -> dict[str, Any]:
+        """The record once its links are in; a link left unresolved stays None."""
+        job = self._link_jobs.pop(id(record), None)
+        if job is not None:
+            try:
+                job.result()
+            except Exception:
+                pass  # the resolver counts its own failures; the page is still served
         return record
 
     def _failed(self, query, page, verdict, error, identity) -> dict[str, Any]:
@@ -573,8 +796,9 @@ class Scraper:
 
     def _current_identity(self) -> Identity | None:
         if self._identity is None:
-            if self._template_usable():
-                self._identity = self._adopt(self._clone(), clone=True)
+            copy = self._templates.checkout(self._emit)
+            if copy is not None:
+                self._identity = self._adopt(self._clone(*copy), clone=True)
             elif self._spares:
                 self._identity = self._take_spare()
             else:
@@ -584,7 +808,7 @@ class Scraper:
     # -- copies of a served profile ------------------------------------------
 
     def _wants_template(self, identity: Identity) -> bool:
-        return bool(self.settings.clones) and not identity.clone and self._template is None
+        return not identity.clone and self._templates.wanted()
 
     def _take_template(self, identity: Identity, reopen: bool = True) -> None:
         """Copy a served identity's cookie jar, then carry on with it.
@@ -594,6 +818,8 @@ class Scraper:
         on the same sticky session.
         """
         s = self.settings
+        if not self._templates.claim():
+            return  # another worker is leaving one right now
         dest = tempfile.mkdtemp(prefix="gbs-template-")
         try:
             source = identity.session.suspend()
@@ -602,39 +828,18 @@ class Scraper:
                 identity.session.resume()
         except Exception as exc:
             shutil.rmtree(dest, ignore_errors=True)
+            self._templates.abort()
             self._event("template_failed", identity, error=describe_error(exc))
             self._retire(f"error: {describe_error(exc)}")
             return
-        self._template = Template(dest, time.monotonic(), s.clones)
+        self._templates.put(dest)
         self._event("template", identity, copies=s.clones)
         if reopen:
             self._sleep(self._rng.uniform(*s.settle_seconds))
 
-    def _template_usable(self) -> bool:
-        t = self._template
-        if t is None:
-            return False
-        if t.left <= 0:
-            self._drop_template("all copies used")
-            return False
-        if time.monotonic() - t.made_at > self.settings.clone_max_age:
-            self._drop_template("too old")
-            return False
-        return True
-
-    def _drop_template(self, reason: str) -> None:
-        t, self._template = self._template, None
-        if t is not None:
-            shutil.rmtree(t.path, ignore_errors=True)
-            self._emit({"event": "template_dropped", "reason": reason, "unused": t.left})
-
-    def _clone(self) -> Identity:
-        """A new sticky session started from a copy of the template profile."""
+    def _clone(self, profile: str, generation: int) -> Identity:
+        """A new sticky session started from a profile copied off the template."""
         s = self.settings
-        t = self._template
-        t.left -= 1
-        profile = tempfile.mkdtemp(prefix="gbs-clone-")
-        _copy_profile(t.path, profile)
         session_id = new_session_id()
         upstream = self.proxy.for_session(session_id) if self.proxy is not None else None
         relay, browser_proxy = self._relay_for(upstream)
@@ -666,7 +871,9 @@ class Scraper:
             0,
             warm_seconds=round(time.monotonic() - started, 1),
             ready_at=time.monotonic(),
+            warm_hosts=relay.hosts() if relay is not None else {},
             clone=True,
+            template=generation,
         )
 
     def _mint(self) -> Identity | None:
@@ -726,6 +933,7 @@ class Scraper:
             warm_bytes,
             warm_seconds=round(time.monotonic() - started, 1),
             ready_at=time.monotonic(),
+            warm_hosts=relay.hosts() if relay is not None else {},
         )
 
     def _count_in(self, identity: Identity, **spare: Any) -> None:
@@ -738,6 +946,7 @@ class Scraper:
             warm_delivered=identity.warm_delivered,
             warm_pages=identity.warm_pages,
             warm_bytes=identity.warm_bytes,
+            warm_hosts=_by_size(identity.warm_hosts),
             seconds=identity.warm_seconds,
             **spare,
         )
@@ -777,7 +986,7 @@ class Scraper:
 
     def _top_up(self) -> None:
         """Start warming spares in the background, up to `settings.spare`."""
-        if not self.settings.spare or self._template is not None:
+        if not self.settings.spare or self._templates.present():
             # A copy of the template replaces a retired exit in seconds.
             return
         if self._warmer is None:
@@ -821,6 +1030,12 @@ class Scraper:
             self._warmer = None
         self._cancel = threading.Event()
 
+    def _leave_page(self, identity: Identity) -> None:
+        try:
+            identity.session.blank()
+        except Exception as exc:
+            self._event("blank_failed", identity, error=describe_error(exc))
+
     def _retire(self, reason: str) -> None:
         identity, self._identity = self._identity, None
         if identity is not None:
@@ -833,10 +1048,17 @@ class Scraper:
             if identity.relay is not None:
                 identity.relay.stop()
                 self.stats.bytes_total += identity.relay.total
+                _add_hosts(self.stats.bytes_by_host, identity.relay.hosts())
             if identity in self.stats._open:
                 self.stats._open.remove(identity)
             self._event(
-                "retired", identity, reason=reason, queries=identity.queries, bytes=identity.bytes()
+                "retired",
+                identity,
+                reason=reason,
+                queries=identity.queries,
+                bytes=identity.bytes(),
+                hosts=_by_size(identity.hosts()),
+                page_hosts=_by_size(identity.page_hosts),
             )
 
     def _check_proxy(self, identity: Identity) -> None:
@@ -860,10 +1082,4 @@ class Scraper:
         self._emit({"event": kind, "session": identity.session_id, **fields})
 
     def _count_failure(self) -> None:
-        self._failed_exits += 1
-        if self._failed_exits >= self.settings.breaker:
-            raise ExitsRefused(
-                f"{self._failed_exits} exits in a row were refused or unreachable. "
-                "Stopping rather than spending more traffic: check the proxy, the "
-                "machine (`google-browser-scraper doctor`) and the hour, then retry."
-            )
+        self._breaker.failed()

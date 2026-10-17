@@ -5,15 +5,21 @@ page and the gap between queries, not the machine. Running `workers` scrapers
 side by side multiplies throughput by roughly that number until the machine
 runs out of CPU or memory for the browsers.
 
-Each worker is an ordinary `Scraper` with its own identities, spares, breaker
-and traffic count; the workers share only the queue of queries. Playwright's
-sync API is bound to the thread that starts it, and every worker starts its
-browsers on its own thread, so nothing is shared across threads.
+Each worker is an ordinary `Scraper` with its own identities, spares and
+traffic count. The workers share the queue of queries, one breaker and one
+cookie-jar template. Playwright's sync API is bound to the thread that starts
+it, and every worker starts its browsers on its own thread, so no browser is
+shared across threads.
 
-When one worker's breaker trips, the whole pool stops: exit after exit being
-refused is a statement about the hour or the pool, not about one worker, and
-the other workers would only spend traffic finding the same thing. Queries
-nobody answered by then are listed in `not_run`.
+The breaker counts refused exits across the pool and any served page resets
+it: one worker drawing bad exits while another keeps being served is not a bad
+hour. When nobody is served for `breaker` exits in a row the whole pool stops,
+since the other workers would only spend traffic finding the same thing.
+Queries nobody answered by then are listed in `not_run`.
+
+The template is shared for the same reason: a served cookie jar is worth as
+much to every worker, and a worker whose copy ran out should start from the
+other worker's jar rather than warm fresh exits.
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
-from .scraper import ExitsRefused, Scraper, Stats
+from .scraper import Breaker, ExitsRefused, Scraper, Stats, Templates
 
 MAX_WORKERS = 16
 _DONE = object()
@@ -75,6 +81,11 @@ class Pool:
         out: queue.Queue[Any] = queue.Queue()
         stopped: list[ExitsRefused] = []
         self._scrapers = [self._make(i) for i in range(self.workers)]
+        first = self._scrapers[0].settings
+        templates = Templates(first.clones, first.clone_max_age)
+        breaker = Breaker(first.breaker)
+        for scraper in self._scrapers:
+            scraper.share(breaker, templates)
         threads = [
             threading.Thread(
                 target=self._work,
@@ -100,6 +111,7 @@ class Pool:
             self._stop.set()
             for t in threads:
                 t.join()
+            templates.drop("run finished", lambda event: None)
         while not todo.empty():
             self.not_run.append(todo.get_nowait())
         if stopped:
@@ -158,5 +170,7 @@ def merge_stats(parts: Iterable[Stats]) -> Stats:
         ):
             setattr(merged, name, getattr(merged, name) + getattr(s, name))
         merged.counted = merged.counted and s.counted
+        for host, n in s.bytes_by_host.items():
+            merged.bytes_by_host[host] = merged.bytes_by_host.get(host, 0) + n
         merged._open.extend(s._open)
     return merged

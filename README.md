@@ -9,9 +9,15 @@ Google Search results from a real browser, through your own sticky proxy.
 Plain HTTP is no longer a reliable way to scrape Google: it often expects a
 browser that runs JavaScript, and a fresh browser on a fresh proxy exit can be
 refused quickly. This tool takes a browser path instead. It warms a sticky proxy
-session with ordinary browsing, types the query into Google's search box, checks
-whether Google served results or refused, and writes one JSON record per results
-page. Captchas, blocks and failures are reported as such, never as "no results".
+session with ordinary browsing, types the first query into Google's search box,
+checks whether Google served results or refused, and writes one JSON record per
+results page. Captchas, blocks and failures are reported as such, never as "no results".
+
+**Run it on Windows** - a desktop or a Windows VPS. That is where it is tested
+and where Google serves it. On a Linux server without a GPU, Google refused
+almost every search in testing; Chrome has no WebGL there, which is the main
+suspect, so Linux and Docker are experimental for now. `google-browser-scraper
+doctor` shows what your machine looks like to a website.
 
 ## Install
 
@@ -47,8 +53,8 @@ Success is a `results.jsonl` with one JSON object per results page:
 
 The first query takes a few minutes, because a new exit is warmed up first, and
 the warm-up costs noticeably more traffic than a search. Later queries on the
-same exit take seconds. A summary of pages served and traffic used is printed at
-the end of every run.
+same exit take seconds. A summary of pages served and traffic used, with the
+hosts that took most of it, is printed at the end of every run.
 
 With NodeMaven, the session id is handled for you and the credentials come from
 the environment:
@@ -89,7 +95,8 @@ shopping, images and other special blocks are not parsed.
 
 Each record also has an `exit` block: which proxy session answered and how many
 bytes the page cost. `search_metadata.timings` says where the page's time went,
-in seconds per step (`type`, `load`, `ready`, `read`, `parse`, `links`). A query
+in seconds per step (`type`, `load`, `ready`, `read`, `parse`, and `links`, which
+overlaps the next query and is not part of `total_time_taken`). A query
 that failed is a record too, with an `error`.
 `--format csv` writes the organic results as a table, and `--price-per-gb` adds
 the cost per 1000 pages to the summary.
@@ -98,7 +105,10 @@ the cost per 1000 pages to the summary.
 
 1. **New identity**: a sticky proxy session and a fresh browser profile.
 2. **Warm-up**: a few ordinary pages, then Google's front page.
-3. **Search**: the query is typed into the box and submitted.
+3. **Search**: an exit's first query is typed into the box and submitted;
+   later queries on the same exit open the results page directly, which is
+   faster and skips the autocomplete traffic of typing (`--type-every-query`
+   types them all).
 4. **Check before parsing**: the page is classified first, so a captcha or a
    block is reported as one and never parsed as an empty result.
 5. **Keep or drop**: an exit Google answers is reused for the next queries; an
@@ -111,16 +121,17 @@ error on a search is retried once from Google's front page before the exit is
 dropped; a network error drops it at once.
 
 `--workers N` searches on N exits at once, one browser each, sharing one list
-of queries. Each browser needs memory and CPU of its own; if exit after exit is
-refused on any worker, the whole run stops.
+of queries. Each browser needs memory and CPU of its own. The run stops when
+exit after exit is refused with no worker served in between.
 
 The command line copies the cookies of the first exit Google serves and
 starts up to 10 new exits from that copy (`--clone N`, `--clone 0` turns it
-off), on new sticky sessions, instead of warming each one. Google's acceptance follows the cookies more than the
-address, so a copy usually starts out served, and costs a few MB instead of a
-full warm-up. A copy refused on its first query ends the copying; the copied
-cookies are used for an hour at most (`--clone-max-age`). A copy waits 40-60
-seconds after its browser starts before the first search.
+off), on new sticky sessions, instead of warming each one; all workers share
+the copy. Google's acceptance follows the cookies more than the address, so a
+copy usually starts out served, and costs a few MB instead of a full warm-up.
+A copy refused on its first query ends the copying; the copied cookies are
+used for three hours at most (`--clone-max-age`). A copy waits 40-60 seconds
+after its browser starts before the first search.
 
 `--spare 1` warms the next exit in the background once the current one is
 served, so a retired exit is replaced without waiting for a warm-up. A spare
@@ -128,8 +139,9 @@ costs a warm-up's traffic whether it is used or not.
 
 Google wraps result links in encrypted `/goto` redirects. Each one is resolved
 with a small request through a separate short-lived proxy session, a few at a
-time, so link resolution does not touch the warmed browser session.
-`--no-resolve-links` skips it.
+time, so link resolution does not touch the warmed browser session. It runs in
+the background while the browser goes on to the next query; records still come
+out in order. `--no-resolve-links` skips it.
 
 Traffic goes through a small local relay that counts bytes and blocks a large
 model download Chrome otherwise makes on every fresh profile.
@@ -199,9 +211,10 @@ Google refuses, and tells you what each page cost.
 
 ## Status
 
-Early. Tested on Windows. **Linux and Docker are experimental**: on a machine
-without a GPU, Chrome has no WebGL, which a normal desktop always has; the
-Docker image turns on a software renderer for it. The `cloak` engine
+Early. Windows is the tested and recommended platform. **Linux and Docker are
+experimental**: on a machine without a GPU, Chrome has no WebGL, which a normal
+desktop always has; the Docker image turns on a software renderer for it, and
+whether Google serves that is not measured yet. The `cloak` engine
 (`--engine cloak`) is experimental too; `patchright` is the default.
 
 Google changes its pages often. If results come back empty or wrong, run with
