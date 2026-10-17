@@ -50,7 +50,7 @@ MB = 1024 * 1024
 MAX_SPARES = 3
 MAX_CLONES = 50
 TOP_HOSTS = 10
-DIRECT_MODES = ("follow-ups", "all", "none")
+DIRECT_MODES = ("all", "follow-ups", "none")
 #: Records held back while their links resolve in the background; past this
 #: the run waits for the oldest instead of opening more pages ahead of it.
 MAX_HELD = 3
@@ -192,8 +192,8 @@ class Settings:
     #: "insert" all at once, "words" one word at a time.
     input: str = "type"
     #: Which queries open the results page directly instead of going through
-    #: the box: "follow-ups" (all but an exit's first), "all" or "none".
-    direct: str = "follow-ups"
+    #: the box: "all", "follow-ups" (all but an exit's first) or "none".
+    direct: str = "all"
     #: Leave each query's last results page for about:blank once it is read,
     #: so the scripts and requests Google starts after the page has loaded
     #: stop with it. They are most of a page's traffic.

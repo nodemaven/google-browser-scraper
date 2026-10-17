@@ -221,8 +221,13 @@ class BrowserSession:
         )
         mark = time.monotonic()
         response = self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        # A fresh exit can be shown the consent wall instead of results; clear
+        # it and open the results again, as the typed path does on the front page.
+        dismissed = self._dismiss_consent()
+        if dismissed:
+            response = self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
         load = round(time.monotonic() - mark, 2)
-        fetched = self._snapshot(response, False)
+        fetched = self._snapshot(response, dismissed)
         return replace(fetched, timings={"load": load, **fetched.timings})
 
     def _box_visible(self) -> bool:

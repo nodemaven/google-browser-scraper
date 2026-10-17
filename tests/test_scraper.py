@@ -229,7 +229,8 @@ def test_a_browser_error_twice_running_drops_the_exit():
 
 def test_a_browser_error_is_retried_once_on_the_same_exit_from_the_front_page():
     events = []
-    s = scraper([[SERVED, TimeoutError("click"), SERVED]], events=events)
+    settings = Settings(direct="follow-ups", gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    s = scraper([[SERVED, TimeoutError("click"), SERVED]], settings, events=events)
     records = list(s.run(["a", "b"]))
     assert [r["search_metadata"]["status"] for r in records] == ["Success", "Success"]
     (session,) = FakeSession.opened
@@ -687,8 +688,14 @@ def test_a_record_says_where_its_time_went():
     assert "parse" in timings and "links" not in timings  # no resolver in these tests
 
 
-def test_an_exits_first_query_is_typed_and_the_rest_open_the_results_page():
+def test_every_query_opens_the_results_page_by_default():
     list(scraper([[SERVED, SERVED, SERVED], [SERVED]]).run(["a", "b", "c"]))
+    assert FakeSession.opened[0].direct == [True, True, True]
+
+
+def test_with_direct_follow_ups_an_exits_first_query_goes_through_the_box():
+    settings = Settings(direct="follow-ups", gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    list(scraper([[SERVED, SERVED, SERVED], [SERVED]], settings).run(["a", "b", "c"]))
     assert FakeSession.opened[0].direct == [False, True, True]
 
 
@@ -723,7 +730,8 @@ def test_the_input_mode_reaches_the_browser_and_bad_modes_are_refused():
 
 
 def test_a_retry_after_a_browser_error_types_from_the_front_page():
-    list(scraper([[SERVED, TimeoutError("click"), SERVED]]).run(["a", "b"]))
+    settings = Settings(direct="follow-ups", gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    list(scraper([[SERVED, TimeoutError("click"), SERVED]], settings).run(["a", "b"]))
     assert FakeSession.opened[0].direct == [False, True, False]
 
 

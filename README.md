@@ -9,9 +9,9 @@ Google Search results from a real browser, through your own sticky proxy.
 Plain HTTP is no longer a reliable way to scrape Google: it often expects a
 browser that runs JavaScript, and a fresh browser on a fresh proxy exit can be
 refused quickly. This tool takes a browser path instead. It warms a sticky proxy
-session with ordinary browsing, types the first query into Google's search box,
-checks whether Google served results or refused, and writes one JSON record per
-results page. Captchas, blocks and failures are reported as such, never as "no results".
+session with ordinary browsing, opens Google's results page for each query in
+that browser, checks whether Google served results or refused, and writes one
+JSON record per results page. Captchas, blocks and failures are reported as such, never as "no results".
 
 **Run it on Windows** - a desktop or a Windows VPS. That is where it is tested
 and where Google serves it. On a Linux server without a GPU, Google refused
@@ -104,13 +104,12 @@ the cost per 1000 pages to the summary.
 ## How it works
 
 1. **New identity**: a sticky proxy session and a fresh browser profile.
-2. **Warm-up**: a few ordinary pages, then Google's front page.
-3. **Search**: an exit's first query goes into Google's search box and is
-   submitted; later queries on the same exit open the results page directly,
-   which is faster and skips the autocomplete traffic of typing. `--input`
-   sets how a query goes into the box (`type` key by key, `insert` all at
-   once, `words` word by word) and `--direct` which queries skip the box
-   (`follow-ups`, `all` or `none`).
+2. **Warm-up**: a few ordinary pages.
+3. **Search**: each query opens Google's results page directly, which is
+   faster than the search box and skips the autocomplete traffic of typing.
+   `--direct follow-ups` sends an exit's first query through the box and
+   `--direct none` every query; `--input` sets how a query goes into the box
+   (`type` key by key, `insert` all at once, `words` word by word).
 4. **Check before parsing**: the page is classified first, so a captcha or a
    block is reported as one and never parsed as an empty result.
 5. **Keep or drop**: an exit Google answers is reused for the next queries; an
@@ -119,8 +118,9 @@ the cost per 1000 pages to the summary.
 
 A served exit is kept for up to 50 queries (`--max-per-exit`). Every new exit
 pays for a warm-up, so a short cap mostly buys more warm-up traffic. A browser
-error on a search is retried once from Google's front page before the exit is
-dropped; a network error drops it at once.
+error on a search is retried once on the same exit (through Google's front page
+when queries go through the search box) before the exit is dropped; a network
+error drops it at once.
 
 `--workers N` searches on N exits at once, one browser each, sharing one list
 of queries. Each browser needs memory and CPU of its own. The run stops when

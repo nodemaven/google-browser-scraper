@@ -127,3 +127,23 @@ def test_insert_and_words_put_the_whole_query_in_the_box(local_google, mode):
 def test_an_unknown_input_mode_is_refused():
     with pytest.raises(ValueError):
         browser.BrowserSession(None, input_mode="paste")
+
+
+def test_a_direct_search_clears_a_consent_wall_and_opens_the_results_again(
+    local_google, monkeypatch
+):
+    monkeypatch.setattr(fakegoogle, "CONSENT_ON_SEARCH", True)
+    try:
+        session = browser.BrowserSession(None, headless=True).__enter__()
+    except Exception as exc:  # browser binary missing on this machine
+        pytest.skip(f"no Patchright browser: {exc}")
+    try:
+        first = session.search("pool near me", direct=True)
+        assert first.consent_dismissed
+        assert "q=pool+near+me" in first.url
+        assert 'id="L2AGLb"' not in first.html  # the reopened page, not the walled one
+        assert classify("https://www.google.com/search", first.html).served
+        second = session.search("swim lessons", direct=True)
+        assert not second.consent_dismissed
+    finally:
+        session.close()

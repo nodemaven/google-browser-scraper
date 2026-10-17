@@ -152,9 +152,9 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--direct",
         choices=DIRECT_MODES,
-        default="follow-ups",
+        default="all",
         help="which queries open the results page directly instead of going through "
-        "the search box: an exit's later queries (default), all, or none",
+        "the search box: all (default), all but an exit's first, or none",
     )
     p.add_argument(
         "--stop-after-read",

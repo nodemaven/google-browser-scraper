@@ -46,6 +46,15 @@ BOX_SWAP = HOME.replace(
 )
 
 
+#: Show a consent wall over the results to a browser that has not accepted yet.
+CONSENT_ON_SEARCH = False
+CONSENT_WALL = (
+    '<div id="overlay" style="position:fixed;inset:0;background:#fff;z-index:9">'
+    '<button id="L2AGLb" onclick="document.cookie=\'SOCS=1; path=/\'; '
+    "document.getElementById('overlay').remove()\">Accept</button></div>"
+)
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - the stdlib's name
         parts = urlsplit(self.path)
@@ -56,6 +65,8 @@ class Handler(BaseHTTPRequestHandler):
             body = body.replace(
                 '<div id="search">', f'<div id="search"><form action="/search">{box}</form>'
             )
+            if CONSENT_ON_SEARCH and "SOCS=" not in (self.headers.get("Cookie") or ""):
+                body = body.replace("<body>", "<body>" + CONSENT_WALL, 1)
         elif parts.path == "/focus-thief":
             body = FOCUS_THIEF
         elif parts.path == "/box-swap":

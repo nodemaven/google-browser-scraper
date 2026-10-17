@@ -1,8 +1,7 @@
 """Which pages a fresh exit opens before it is asked anything.
 
 The browser opens each page, waits, and moves on: no clicking, no scrolling, no
-typing. It ends on Google's front page, which is where the query is typed. A
-single page of warm-up does little; the default six-page ladder is the one that
+typing. A single page of warm-up does little; the default six-page ladder is the one that
 measured best in proxy-benchmark.
 """
 
