@@ -108,33 +108,42 @@ def test_the_command_line_refuses_a_worker_count_out_of_range(workers, capsys):
 
 
 def test_one_worker_drawing_refused_exits_does_not_stop_a_pool_another_serves():
-    # Worker 0's k-th refusal waits until worker 1 has delivered k records, so
-    # a served page lands between any two of worker 0's refusals. A breaker of
-    # 2 per worker would stop the pool on worker 0's second refusal.
-    delivered = {"n": 0}
+    # Lockstep: worker 1 may start a search only when worker 0, about to be
+    # refused, hands it two permits, and worker 0 goes on once both searches
+    # have started. Worker 1's first of the two has then been served and has
+    # reset the breaker after worker 0's previous refusal was counted, so a
+    # served page lands between any two refusals. A breaker of 2 per worker
+    # would stop the pool on worker 0's second refusal.
+    searched = {"n": 0}
     turn = threading.Condition()
+    permits = threading.Semaphore(0)
+    refusing_done = threading.Event()
     refusals = {"n": 0}
 
     class Waiting(Recording):
         def search(self, query, direct=False):
-            if self.worker == 0 and self.script and self.script[0] is REFUSED:
-                refusals["n"] += 1
-                wanted = refusals["n"]
+            if self.worker == 1:
+                deadline = time.monotonic() + 10
+                while not refusing_done.is_set() and not permits.acquire(timeout=0.05):
+                    assert time.monotonic() < deadline
                 with turn:
-                    turn.wait_for(lambda: delivered["n"] >= wanted, timeout=5)
+                    searched["n"] += 1
+                    turn.notify_all()
+            elif self.script and self.script[0] is REFUSED:
+                refusals["n"] += 1
+                with turn:
+                    start = searched["n"]
+                    permits.release(2)
+                    assert turn.wait_for(lambda: searched["n"] >= start + 2, timeout=10)
+                if refusals["n"] == 3:
+                    refusing_done.set()
             return super().search(query, direct)
 
     settings = Settings(breaker=2, gap_seconds=(0, 0), dwell_seconds=(0, 0))
     worker0 = [[REFUSED], [REFUSED], [REFUSED]] + [[SERVED] * 20 for _ in range(3)]
     p = pool([worker0, [[SERVED] * 50]], settings, cls=Waiting)
     queries = [f"q{i}" for i in range(20)]
-    records = []
-    for r in p.run(queries):
-        records.append(r)
-        if r["search_metadata"]["worker"] == 1:
-            with turn:
-                delivered["n"] += 1
-                turn.notify_all()
+    records = list(p.run(queries))
     assert sorted(r["search_parameters"]["q"] for r in records) == sorted(queries)
     assert p.not_run == []
     assert refusals["n"] == 3
