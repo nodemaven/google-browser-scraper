@@ -124,7 +124,7 @@ error drops it at once.
 
 `--workers N` searches on N exits at once, one browser each, sharing one list
 of queries. Each browser needs memory and CPU of its own. The run stops when
-exit after exit is refused with no worker served in between.
+exit after exit is refused or unreachable with no worker served in between.
 
 The command line copies the cookies of the first exit Google serves and
 starts up to 10 new exits from that copy (`--clone N`, `--clone 0` turns it
@@ -143,7 +143,7 @@ Google wraps result links in encrypted `/goto` redirects. Each one is resolved
 with a small request through a separate short-lived proxy session, a few at a
 time, so link resolution does not touch the warmed browser session. It runs in
 the background while the browser goes on to the next query; records still come
-out in order. `--no-resolve-links` skips it.
+out in the order each browser searched them. `--no-resolve-links` skips it.
 
 Traffic goes through a small local relay that counts bytes and blocks a large
 model download Chrome otherwise makes on every fresh profile.

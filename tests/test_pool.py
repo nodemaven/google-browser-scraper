@@ -228,3 +228,18 @@ def test_only_one_worker_at_a_time_may_leave_a_template(tmp_path):
     assert templates.wanted() and templates.claim()
     templates.put(str(tmp_path))
     assert not templates.claim()
+
+
+def test_workers_with_different_shared_settings_are_refused():
+    def make(i):
+        return Scraper(
+            ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
+            Settings(clones=i, gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+            session_factory=lambda proxy, **o: Recording(proxy, script=[SERVED], **o),
+            relay_factory=FakeRelay,
+            resolver_factory=None,
+            sleep=lambda seconds: None,
+        )
+
+    with pytest.raises(ValueError, match="same for every worker"):
+        list(Pool(make, 2, sleep=lambda seconds: None).run(["a"]))

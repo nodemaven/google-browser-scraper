@@ -808,3 +808,52 @@ def test_stop_after_read_leaves_the_page_after_each_query_and_only_when_asked():
     settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), stop_after_read=True)
     list(scraper([[SERVED, SERVED]], settings).run(["a", "b"]))
     assert FakeSession.opened[0].blanks == 2
+
+
+class _SlowResolver:
+    resolved = failed = 0
+    bytes = 1000
+
+    def __init__(self, upstream, relay_factory=None):
+        pass
+
+    def fill(self, results):
+        import time
+
+        time.sleep(0.3)
+
+    def close(self):
+        pass
+
+    def hosts(self):
+        return {"www.google.com": 1000}
+
+
+def _with_resolver(scripts, settings):
+    FakeSession.opened, FakeRelay.by_address = [], {}
+    scripts = list(scripts)
+    return Scraper(
+        ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
+        settings,
+        session_factory=lambda proxy, **o: FakeSession(proxy, script=scripts.pop(0), **o),
+        relay_factory=FakeRelay,
+        resolver_factory=_SlowResolver,
+        sleep=lambda x: None,
+    )
+
+
+def test_pages_served_before_the_breaker_trips_are_still_yielded():
+    settings = Settings(breaker=1, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    s = _with_resolver([[SERVED, REFUSED]], settings)
+    records = []
+    with pytest.raises(ExitsRefused):
+        for record in s.run(["a", "b"]):
+            records.append(record)
+    assert [r["search_parameters"]["q"] for r in records] == ["a"]
+
+
+def test_link_traffic_is_in_the_summary_while_the_scraper_stays_open():
+    s = _with_resolver([[SERVED]], Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)))
+    s.search("a")
+    assert "www.google.com (links)" in s.stats.summary()["traffic_by_host_mb"]
+    s.close()

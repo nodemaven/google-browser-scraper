@@ -102,7 +102,11 @@ class Relay:
             return self.bytes_up + self.bytes_down
 
     def hosts(self) -> dict[str, int]:
-        """Bytes both ways per target host, the CONNECT exchange included."""
+        """Bytes both ways per target host, the CONNECT exchange included.
+
+        A plain-HTTP connection the browser keeps alive for requests to other
+        hosts is counted under its first host; that traffic is a few small
+        revocation checks and redirects."""
         with self._lock:
             return dict(self._hosts)
 

@@ -82,6 +82,17 @@ class Pool:
         stopped: list[ExitsRefused] = []
         self._scrapers = [self._make(i) for i in range(self.workers)]
         first = self._scrapers[0].settings
+        for scraper in self._scrapers[1:]:
+            s = scraper.settings
+            if (s.clones, s.clone_max_age, s.breaker) != (
+                first.clones,
+                first.clone_max_age,
+                first.breaker,
+            ):
+                raise ValueError(
+                    "workers share one cookie template and one breaker, so clones, "
+                    "clone_max_age and breaker must be the same for every worker"
+                )
         templates = Templates(first.clones, first.clone_max_age)
         breaker = Breaker(first.breaker)
         for scraper in self._scrapers:

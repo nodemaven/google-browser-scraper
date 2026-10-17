@@ -410,12 +410,18 @@ class Stats:
     counted: bool = True
     bytes_by_host: dict[str, int] = field(default_factory=dict)
     _open: list = field(default_factory=list, repr=False)
+    #: The link resolver while it is open, so a long-lived scraper (serve,
+    #: MCP) reports its traffic before `close()` folds it in.
+    _links: Any = field(default=None, repr=False)
 
     def summary(self, price_per_gb: float | None = None) -> dict[str, Any]:
         total = self.bytes_total + sum(i.bytes() or 0 for i in self._open)
         by_host = dict(self.bytes_by_host)
         for identity in self._open:
             _add_hosts(by_host, identity.hosts())
+        if self._links is not None:
+            total += self._links.bytes
+            _add_hosts(by_host, {f"{h} (links)": n for h, n in self._links.hosts().items()})
         out: dict[str, Any] = {
             "identities": self.identities,
             "clones": self.clones,
@@ -559,14 +565,21 @@ class Scraper:
         identity.
 
         A record's links resolve on a thread of their own while the browser
-        goes on to the next query; the record is yielded once they are in.
+        goes on to the next query; the record is yielded once they are in. A
+        run that stops on an error (the breaker, a proxy refusal) still yields
+        the pages it already served before the error is raised.
         """
+        held: deque[dict[str, Any]] = deque()
         try:
-            held: deque[dict[str, Any]] = deque()
             for record in self._records(queries):
                 held.append(record)
                 while held and (len(held) > MAX_HELD or self._links_ready(held[0])):
                     yield self._finish(held.popleft())
+        except Exception:
+            while held:
+                yield self._finish(held.popleft())
+            raise
+        else:
             while held:
                 yield self._finish(held.popleft())
         finally:
@@ -613,6 +626,7 @@ class Scraper:
             self.stats.links_resolved += self._resolver.resolved
             self.stats.links_failed += self._resolver.failed
             self._resolver = None
+            self.stats._links = None
 
     # -- one query -----------------------------------------------------------
 
@@ -732,6 +746,7 @@ class Scraper:
             upstream = self.proxy.for_session(new_session_id()) if self.proxy is not None else None
             relay = self._relay_factory if self.settings.use_relay else None
             self._resolver = self._resolver_factory(upstream, relay_factory=relay)
+            self.stats._links = self._resolver
         return self._resolver
 
     def _keep(self, fetched, query: str, page: int, verdict: Verdict) -> str | None:

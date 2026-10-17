@@ -3,6 +3,7 @@
 import base64
 import socket
 import threading
+import time
 
 import pytest
 
@@ -192,11 +193,19 @@ def test_bytes_are_counted_per_target_host(echo):
     try:
         _tunnel(address, f"127.0.0.1:{echo}", b"a" * 300)
         _tunnel(address, f"LOCALHOST:{echo}", b"b" * 100)
+        # The relay counts a chunk after passing it on, so the echo can reach
+        # the client before the last count lands.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            seen = relay.hosts()
+            if seen.get("127.0.0.1", 0) >= 600 and seen.get("localhost", 0) >= 200:
+                break
+            time.sleep(0.01)
     finally:
         relay.stop()
     hosts = relay.hosts()
     assert set(hosts) == {"127.0.0.1", "localhost"}
-    assert hosts["127.0.0.1"] > hosts["localhost"] >= 200
+    assert hosts["127.0.0.1"] >= 600 and hosts["localhost"] >= 200
     assert sum(hosts.values()) == relay.total
 
 
