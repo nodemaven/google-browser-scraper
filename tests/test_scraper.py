@@ -617,6 +617,29 @@ def test_a_copy_refused_on_its_first_query_ends_the_copying():
     assert not os.path.exists(copy.profile_dir) or copy.closed
 
 
+def test_the_template_survives_fewer_refused_copies_than_allowed():
+    events = []
+    s = scraper(
+        [[SERVED, SERVED], [REFUSED], [SERVED], [REFUSED], [REFUSED], [SERVED]],
+        clone_settings(clones=10, max_queries_per_exit=1, clone_refusals=2),
+        events=events,
+    )
+    records = list(s.run(["a", "b", "c"]))
+    assert [r["search_metadata"]["status"] for r in records] == ["Success"] * 3
+    seed, first, second, third, fourth, fresh = FakeSession.opened
+    # refused, served (resets), refused, refused: the template goes on the
+    # second refusal in a row, and the next exit is warmed from scratch.
+    assert [x.visited for x in (first, second, third, fourth)] == [[], [], [], []]
+    assert len(fresh.visited) == 6
+    dropped = [e["reason"] for e in events if e["event"] == "template_dropped"]
+    assert dropped[0] == "2 copies in a row were refused on their first query"
+
+
+def test_clone_refusals_below_one_is_refused():
+    with pytest.raises(ValueError, match="clone_refusals"):
+        Settings(clone_refusals=0)
+
+
 def test_a_template_past_its_age_is_not_used(monkeypatch):
     import google_browser_scraper.scraper as module
 

@@ -143,6 +143,14 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         help="minutes copied cookies stay in use (default 180)",
     )
     p.add_argument(
+        "--clone-refusals",
+        type=int,
+        default=1,
+        metavar="N",
+        help="copies refused on their first query, in a row, that end the copying "
+        "(default 1)",
+    )
+    p.add_argument(
         "--input",
         choices=browser.INPUT_MODES,
         default="type",
@@ -234,6 +242,7 @@ def _build(args, *, pages: int = 1, worker: int | None = None) -> tuple[Scraper,
         spare=args.spare,
         clones=args.clone,
         clone_max_age=args.clone_max_age * 60,
+        clone_refusals=args.clone_refusals,
         input=args.input,
         direct=args.direct,
         stop_after_read=args.stop_after_read,

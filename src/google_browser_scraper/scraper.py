@@ -188,6 +188,9 @@ class Settings:
     #: template well past an hour old keep being served; one that is refused
     #: on its first query ends the template whatever its age.
     clone_max_age: float = 3 * 3600.0
+    #: Copies refused on their first query, in a row, that end the template. A
+    #: copy that is served resets the count.
+    clone_refusals: int = 1
     #: How a query is entered into Google's search box: "type" key by key,
     #: "insert" all at once, "words" one word at a time.
     input: str = "type"
@@ -214,6 +217,8 @@ class Settings:
             raise ValueError(f"clones must be between 0 and {MAX_CLONES}")
         if self.clone_max_age <= 0:
             raise ValueError("clone_max_age must be positive")
+        if self.clone_refusals < 1:
+            raise ValueError("clone_refusals must be at least 1")
         if self.input not in browser.INPUT_MODES:
             raise ValueError(f"input must be one of {', '.join(browser.INPUT_MODES)}")
         if self.direct not in DIRECT_MODES:
@@ -238,14 +243,16 @@ class Templates:
     """The served cookie jar new exits start from, one at a time.
 
     In a pool every worker shares one: any worker's served exit can leave it,
-    any worker can start copies from it, and a copy refused on its first query
-    ends it for all of them. Copying from it and dropping it hold the same lock,
+    any worker can start copies from it, and `refusals` copies refused on their
+    first query in a row end it for all of them. Copying from it and dropping it hold the same lock,
     so no worker copies a folder another one is deleting.
     """
 
-    def __init__(self, copies: int, max_age: float) -> None:
+    def __init__(self, copies: int, max_age: float, refusals: int = 1) -> None:
         self.copies = copies
         self.max_age = max_age
+        self.refusals = refusals
+        self._refused = 0
         self._lock = threading.Lock()
         self._current: Template | None = None
         self._making = False
@@ -272,6 +279,7 @@ class Templates:
         with self._lock:
             self._making = False
             self._generation += 1
+            self._refused = 0
             self._current = Template(path, time.monotonic(), self.copies, self._generation)
 
     def abort(self) -> None:
@@ -299,6 +307,29 @@ class Templates:
                 shutil.rmtree(profile, ignore_errors=True)
                 raise
             return profile, t.generation
+
+    def copy_served(self, generation: int) -> None:
+        """A copy of this template was served on its first query."""
+        with self._lock:
+            t = self._current
+            if t is not None and t.generation == generation:
+                self._refused = 0
+
+    def copy_refused(self, generation: int, emit: Callable[[dict], None]) -> None:
+        """A copy of this template was refused on its first query; the
+        template goes after `refusals` of those in a row."""
+        with self._lock:
+            t = self._current
+            if t is None or t.generation != generation:
+                return
+            self._refused += 1
+            if self._refused >= self.refusals:
+                reason = (
+                    "a copy was refused on its first query"
+                    if self.refusals == 1
+                    else f"{self._refused} copies in a row were refused on their first query"
+                )
+                self._drop(t, reason, emit)
 
     def drop(
         self, reason: str, emit: Callable[[dict], None], generation: int | None = None
@@ -545,7 +576,9 @@ class Scraper:
         self._spares: deque[Future] = deque()
         self._warmer: ThreadPoolExecutor | None = None
         self._cancel = threading.Event()
-        self._templates = Templates(self.settings.clones, self.settings.clone_max_age)
+        self._templates = Templates(
+            self.settings.clones, self.settings.clone_max_age, self.settings.clone_refusals
+        )
         self._owns_templates = True
         self._breaker = Breaker(self.settings.breaker)
         self._saved = 0
@@ -657,6 +690,8 @@ class Scraper:
             saved = self._keep(fetched, query, 1, verdict)
             if verdict.served:
                 self._breaker.served()
+                if identity.clone and identity.queries == 1:
+                    self._templates.copy_served(identity.template)
                 if more:
                     self._top_up()
                 yield self._served(query, 1, fetched, verdict, identity, started, before, saved)
@@ -671,9 +706,7 @@ class Scraper:
                 return
             if identity.clone and identity.queries == 1:
                 # Copies are refused together with the profile they came from.
-                self._templates.drop(
-                    "a copy was refused on its first query", self._emit, identity.template
-                )
+                self._templates.copy_refused(identity.template, self._emit)
             last_verdict, last_error = verdict, None
             self.stats.exits_refused += verdict.refused
             self._retire(verdict.kind)
