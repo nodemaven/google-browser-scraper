@@ -147,8 +147,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         type=int,
         default=1,
         metavar="N",
-        help="copies refused on their first query, in a row, that end the copying "
-        "(default 1)",
+        help="copies refused on their first query, in a row, that end the copying (default 1)",
     )
     p.add_argument(
         "--input",
