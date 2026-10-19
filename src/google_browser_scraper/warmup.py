@@ -26,8 +26,10 @@ LADDERS: dict[str, tuple[str, ...]] = {
 }
 DEFAULT = "L3"
 
-#: Seconds on each warm-up page, drawn uniformly.
-DWELL_SECONDS = (3.0, 8.0)
+#: Seconds on each warm-up page, drawn uniformly. A fresh exit warmed with a few
+#: seconds per page is refused on its first search far more often than one that
+#: stays on each page for half a minute or so.
+DWELL_SECONDS = (20.0, 45.0)
 
 
 def pages(level: str) -> tuple[str, ...]:

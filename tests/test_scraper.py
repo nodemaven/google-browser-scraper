@@ -880,3 +880,7 @@ def test_link_traffic_is_in_the_summary_while_the_scraper_stays_open():
     s.search("a")
     assert "www.google.com (links)" in s.stats.summary()["traffic_by_host_mb"]
     s.close()
+
+
+def test_the_warm_up_stays_on_each_page_for_half_a_minute_or_so():
+    assert Settings().dwell_seconds == (20.0, 45.0)

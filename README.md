@@ -120,7 +120,7 @@ the cost per 1000 pages to the summary.
 ## How it works
 
 1. **New identity**: a sticky proxy session and a fresh browser profile.
-2. **Warm-up**: a few ordinary pages.
+2. **Warm-up**: a few ordinary pages, staying on each for 20-45 seconds.
 3. **Search**: each query opens Google's results page directly, which is
    faster than the search box and skips the autocomplete traffic of typing.
    `--direct follow-ups` sends an exit's first query through the box and
@@ -147,8 +147,9 @@ starts up to 10 new exits from that copy (`--clone N`, `--clone 0` turns it
 off), on new sticky sessions, instead of warming each one; all workers share
 the copy. Google's acceptance follows the cookies more than the address, so a
 copy usually starts out served, and costs a few MB instead of a full warm-up.
-A copy refused on its first query ends the copying; the copied cookies are
-used for three hours at most (`--clone-max-age`). A copy waits 40-60 seconds
+A copy refused on its first query ends the copying (`--clone-refusals N` waits
+for N refused copies in a row; a served copy resets the count); the copied
+cookies are used for three hours at most (`--clone-max-age`). A copy waits 40-60 seconds
 after its browser starts before the first search.
 
 `--spare 1` warms the next exit in the background once the current one is
