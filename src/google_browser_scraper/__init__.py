@@ -7,7 +7,7 @@ for record in Scraper(proxy, Settings(pages=2)).run(["best running shoes"]):
     print(record["organic_results"])
 """
 
-__version__ = "0.0.5"
+__version__ = "0.0.5.post1"
 
 from .classify import Verdict, classify  # noqa: E402
 from .parse import parse_serp  # noqa: E402
