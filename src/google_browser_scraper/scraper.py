@@ -188,9 +188,6 @@ class Settings:
     #: template well past an hour old keep being served; one that is refused
     #: on its first query ends the template whatever its age.
     clone_max_age: float = 3 * 3600.0
-    #: Copies refused on their first query, in a row, that end the template. A
-    #: copy that is served resets the count.
-    clone_refusals: int = 1
     #: How a query is entered into Google's search box: "type" key by key,
     #: "insert" all at once, "words" one word at a time.
     input: str = "type"
@@ -204,6 +201,10 @@ class Settings:
     #: Wait between relaunching a warmed profile and its first search: a
     #: search the moment the browser starts is refused far more often.
     settle_seconds: tuple[float, float] = (40.0, 60.0)
+    #: Copies refused on their first query, in a row, that end the template. A
+    #: copy that is served resets the count. Below `breaker`, which would stop
+    #: the run first.
+    clone_refusals: int = 1
 
     def __post_init__(self) -> None:
         engines.get(self.engine)
@@ -219,6 +220,8 @@ class Settings:
             raise ValueError("clone_max_age must be positive")
         if self.clone_refusals < 1:
             raise ValueError("clone_refusals must be at least 1")
+        if self.clone_refusals > 1 and self.clone_refusals >= self.breaker:
+            raise ValueError("clone_refusals must be below breaker, which would stop the run first")
         if self.input not in browser.INPUT_MODES:
             raise ValueError(f"input must be one of {', '.join(browser.INPUT_MODES)}")
         if self.direct not in DIRECT_MODES:
@@ -704,7 +707,7 @@ class Scraper:
                 if self._identity is identity and capped:
                     self._retire("query cap reached")
                 return
-            if identity.clone and identity.queries == 1:
+            if identity.clone and identity.queries == 1 and verdict.refused:
                 # Copies are refused together with the profile they came from.
                 self._templates.copy_refused(identity.template, self._emit)
             last_verdict, last_error = verdict, None

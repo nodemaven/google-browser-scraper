@@ -635,9 +635,12 @@ def test_the_template_survives_fewer_refused_copies_than_allowed():
     assert dropped[0] == "2 copies in a row were refused on their first query"
 
 
-def test_clone_refusals_below_one_is_refused():
+def test_clone_refusals_must_be_reachable():
     with pytest.raises(ValueError, match="clone_refusals"):
         Settings(clone_refusals=0)
+    with pytest.raises(ValueError, match="below breaker"):
+        Settings(clone_refusals=6, breaker=6)
+    assert Settings(clone_refusals=5).clone_refusals == 5
 
 
 def test_a_template_past_its_age_is_not_used(monkeypatch):

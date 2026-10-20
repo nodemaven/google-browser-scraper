@@ -147,8 +147,8 @@ starts up to 10 new exits from that copy (`--clone N`, `--clone 0` turns it
 off), on new sticky sessions, instead of warming each one; all workers share
 the copy. Google's acceptance follows the cookies more than the address, so a
 copy usually starts out served, and costs a few MB instead of a full warm-up.
-A copy refused on its first query ends the copying (`--clone-refusals N` waits
-for N refused copies in a row; a served copy resets the count); the copied
+Copying stops after N copies in a row are refused on their first query
+(`--clone-refusals N`, default 1; a served copy resets the count); the copied
 cookies are used for three hours at most (`--clone-max-age`). A copy waits 40-60 seconds
 after its browser starts before the first search.
 
