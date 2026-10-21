@@ -1,0 +1,55 @@
+# Publish the Docker image to GitHub Container Registry as
+# ghcr.io/nodemaven/google-browser-scraper, tagged with the release version and
+# `latest`.
+#
+# Like publish.yml it runs on a published release, so the image and the PyPI
+# package always come from the same tag. It can also be started by hand on a
+# release tag to rebuild an existing version. A pull request that touches the
+# image builds it without pushing. GITHUB_TOKEN is the only credential:
+# `packages: write` lets it push to this repository's package.
+name: docker
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - Dockerfile
+      - docker/**
+      - pyproject.toml
+      - .github/workflows/docker.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The version is the tag without its `v`. Python versions such as
+      # 0.0.5.post1 are not semver, so the tag is matched, not parsed.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=match,pattern=v(.*),group=1
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
