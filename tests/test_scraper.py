@@ -252,6 +252,16 @@ def test_a_network_error_drops_the_exit_without_a_retry():
     assert not [e for e in events if e["event"] == "search_retry"]
 
 
+def test_running_out_of_memory_drops_the_exit_without_a_retry():
+    events = []
+    records = list(scraper([[SERVED, MemoryError()], [SERVED]], events=events).run(["a", "b"]))
+    assert [r["search_metadata"]["status"] for r in records] == ["Success", "Success"]
+    first, second = FakeSession.opened
+    assert first.searched == ["a", "b"] and first.closed
+    assert second.searched == ["b"]
+    assert not [e for e in events if e["event"] == "search_retry"]
+
+
 def test_a_served_exit_is_held_well_past_ten_queries_by_default():
     queries = [f"q{i}" for i in range(30)]
     list(scraper([[SERVED] * 30]).run(queries))

@@ -232,10 +232,11 @@ class Settings:
     #: the run first.
     clone_refusals: int = 1
     #: Results pages on one browser before it is closed and opened again on
-    #: the same profile and exit. Google's renderer grows by several MB a page
+    #: the same profile and exit. Google's renderer grows by 10-20 MB a page
     #: and a new tab reuses it, so only a new browser gives the memory back;
-    #: it waits `settle_seconds` before searching again. 0 never restarts.
-    restart_every: int = 100
+    #: at 50 a browser stays under about a gigabyte. It waits
+    #: `settle_seconds` before searching again. 0 never restarts.
+    restart_every: int = 50
     #: Copies carry the template's HTTP cache, so a new exit starts with the
     #: cheap pages of a long hold. After CACHE_REFUSALS refused copies that
     #: carried it, the rest of the run copies the cookie jar alone.
@@ -817,13 +818,15 @@ class Scraper:
 
         A network error is the exception: the proxy or the exit failed, and a
         second page through it fails the same way after another full timeout.
+        So is running out of memory: a browser that hit it does not recover,
+        and a second search on it can hang, so the exit is retired instead.
         """
         mode = self.settings.direct
         direct = mode == "all" or (mode == "follow-ups" and identity.queries > 0)
         try:
             return identity.session.search(query, direct=direct)
         except Exception as exc:
-            if _NETWORK_ERROR.search(str(exc)):
+            if isinstance(exc, MemoryError) or _NETWORK_ERROR.search(str(exc)):
                 raise
             self._event("search_retry", identity, error=describe_error(exc))
             if mode == "all":

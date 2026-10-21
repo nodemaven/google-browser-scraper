@@ -209,7 +209,7 @@ To build it yourself: `docker build -t google-browser-scraper .`
 <br>
 
 **Holding exits.** A served exit is kept for up to 300 queries. Every new exit
-pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 100
+pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 50
 searches the browser is restarted on the same profile and exit, which keeps its
 memory from growing over a long hold. A browser
 error on a search is retried once on the same exit before the exit is dropped;
@@ -254,7 +254,7 @@ The defaults come from measurements in
 |---|---|---|
 | `--workers N` | 1 | Search on N exits at once, one browser each, from one list of queries |
 | `--max-per-exit N` | 300 | Queries before a served exit is retired |
-| `--restart-every N` | 100 | Results pages before the browser restarts on the same profile and exit; `0` never |
+| `--restart-every N` | 50 | Results pages before the browser restarts on the same profile and exit; `0` never |
 | `--clone N` | 10 | New exits started from copied cookies; `0` turns copying off |
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |

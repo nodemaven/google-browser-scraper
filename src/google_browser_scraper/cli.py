@@ -153,10 +153,10 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--restart-every",
         type=int,
-        default=100,
+        default=50,
         metavar="N",
         help="results pages before the browser is restarted on the same profile and exit, "
-        "which keeps its memory from growing (default 100; 0 never)",
+        "which keeps its memory from growing (default 50; 0 never)",
     )
     p.add_argument(
         "--spare",
