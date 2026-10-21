@@ -60,6 +60,10 @@ _CREDENTIALS = re.compile(r"//[^/\s:@]+:[^@\s]+@")
 #: Chromium's own network failures: the tunnel, TLS or the connection broke.
 _NETWORK_ERROR = re.compile(r"net::ERR_")
 
+#: A browser that crashed or was closed under the search: a second search on it
+#: fails the same way or hangs.
+_BROWSER_GONE = re.compile(r"crashed|has been closed", re.IGNORECASE)
+
 
 def describe_error(exc: BaseException) -> str:
     """One line naming an exception, for records and events.
@@ -818,15 +822,19 @@ class Scraper:
 
         A network error is the exception: the proxy or the exit failed, and a
         second page through it fails the same way after another full timeout.
-        So is running out of memory: a browser that hit it does not recover,
-        and a second search on it can hang, so the exit is retired instead.
+        So are running out of memory and a crashed or closed browser: a second
+        search on it fails again or hangs, so the exit is retired instead.
         """
         mode = self.settings.direct
         direct = mode == "all" or (mode == "follow-ups" and identity.queries > 0)
         try:
             return identity.session.search(query, direct=direct)
         except Exception as exc:
-            if isinstance(exc, MemoryError) or _NETWORK_ERROR.search(str(exc)):
+            if (
+                isinstance(exc, MemoryError)
+                or _NETWORK_ERROR.search(str(exc))
+                or _BROWSER_GONE.search(str(exc))
+            ):
                 raise
             self._event("search_retry", identity, error=describe_error(exc))
             if mode == "all":

@@ -210,10 +210,10 @@ To build it yourself: `docker build -t google-browser-scraper .`
 
 **Holding exits.** A served exit is kept for up to 300 queries. Every new exit
 pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 50
-searches the browser is restarted on the same profile and exit, which keeps its
-memory from growing over a long hold. A browser
-error on a search is retried once on the same exit before the exit is dropped;
-a network error drops it at once.
+results pages the browser is restarted on the same profile and exit, which keeps
+its memory from growing over a long hold. A browser error on a search is retried
+once on the same exit before the exit is dropped; a network error, running out of
+memory or a crashed browser drops it at once.
 
 **Copying cookies.** The command line copies the cookies of the first exit
 Google serves and starts new exits from that copy, on new sticky sessions,

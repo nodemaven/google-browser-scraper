@@ -262,6 +262,15 @@ def test_running_out_of_memory_drops_the_exit_without_a_retry():
     assert not [e for e in events if e["event"] == "search_retry"]
 
 
+def test_a_crashed_browser_drops_the_exit_without_a_retry():
+    events = []
+    crash = RuntimeError("Page.goto: Target crashed")
+    records = list(scraper([[SERVED, crash], [SERVED]], events=events).run(["a", "b"]))
+    assert [r["search_metadata"]["status"] for r in records] == ["Success", "Success"]
+    assert FakeSession.opened[1].searched == ["b"]
+    assert not [e for e in events if e["event"] == "search_retry"]
+
+
 def test_a_served_exit_is_held_well_past_ten_queries_by_default():
     queries = [f"q{i}" for i in range(30)]
     list(scraper([[SERVED] * 30]).run(queries))
