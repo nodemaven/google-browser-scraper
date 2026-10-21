@@ -153,7 +153,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         type=int,
         default=100,
         metavar="N",
-        help="searches before the browser is restarted on the same profile and exit, "
+        help="results pages before the browser is restarted on the same profile and exit, "
         "which keeps its memory from growing (default 100; 0 never)",
     )
     p.add_argument(

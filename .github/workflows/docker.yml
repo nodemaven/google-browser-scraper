@@ -2,11 +2,12 @@
 # ghcr.io/nodemaven/google-browser-scraper, tagged with the release version and
 # `latest`.
 #
-# Like publish.yml it runs on a published release, so the image and the PyPI
-# package always come from the same tag. It can also be started by hand on a
-# release tag to rebuild an existing version. A pull request that touches the
-# image builds it without pushing. GITHUB_TOKEN is the only credential:
-# `packages: write` lets it push to this repository's package.
+# Like publish.yml it publishes on a published release, so the image and the
+# PyPI package always come from the same tag; it can also be started by hand on
+# a `v*` release tag to rebuild that version. A manual run on a branch, and a
+# pull request that touches anything in the image, only build it. The build job
+# can read the repository and nothing else; only the publish job, which never
+# runs for a pull request, may write to the package.
 name: docker
 
 on:
@@ -16,22 +17,40 @@ on:
   pull_request:
     paths:
       - Dockerfile
+      - .dockerignore
       - docker/**
+      - src/**
       - pyproject.toml
+      - README.md
+      - LICENSE
       - .github/workflows/docker.yml
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  image:
+  build:
+    if: github.event_name == 'pull_request' || !startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+
+  publish:
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -48,7 +67,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

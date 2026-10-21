@@ -922,7 +922,7 @@ def test_a_failed_restart_retires_the_exit_and_the_next_one_carries_on():
     s = scraper([[SERVED], [SERVED]], settings, events=events, cls=Broken)
     records = list(s.run(["a", "b"]))
     assert len(records) == 2 and len(FakeSession.opened) == 2
-    assert sum(e["event"] == "restart_failed" for e in events) == 2
+    assert sum(e["event"] == "restart_failed" for e in events) == 1  # none after the last query
 
 
 def test_restart_every_must_not_be_negative():
@@ -957,3 +957,27 @@ def test_a_restart_leaves_the_warm_profile_as_the_new_template():
     made = [e for e in events if e["event"] == "template"]
     assert [bool(e.get("renewed")) for e in made] == [False, True, True]
     assert [e["template"] for e in events if e["event"] == "restart"] == [True, True]
+
+
+def test_no_restart_after_the_last_query_of_a_run():
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), restart_every=2)
+    list(scraper([[SERVED] * 4], settings).run(list("abcd")))
+    assert FakeSession.opened[0].restarts == [2]
+
+
+def test_a_refused_cache_copy_counts_after_the_template_was_renewed():
+    from google_browser_scraper.scraper import Templates
+
+    events = []
+    templates = Templates(copies=3, max_age=3600)
+    first = tempfile.mkdtemp()
+    templates.put(first, cache=True)
+    _, generation, cache = templates.checkout(events.append)
+    assert cache
+    renewed = tempfile.mkdtemp()
+    assert templates.renew(renewed, cache=True)  # another worker renewed it
+    templates.copy_refused(generation, events.append, cache)
+    _, generation, cache = templates.checkout(events.append)
+    templates.copy_refused(generation, events.append, cache)
+    assert templates.cache_off
+    assert [e["event"] for e in events].count("clone_cache_off") == 1

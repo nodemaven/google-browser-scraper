@@ -231,8 +231,8 @@ class Settings:
     #: copy that is served resets the count. Below `breaker`, which would stop
     #: the run first.
     clone_refusals: int = 1
-    #: Searches on one browser before it is closed and opened again on the
-    #: same profile and exit. Google's renderer grows by several MB a search
+    #: Results pages on one browser before it is closed and opened again on
+    #: the same profile and exit. Google's renderer grows by several MB a page
     #: and a new tab reuses it, so only a new browser gives the memory back;
     #: it waits `settle_seconds` before searching again. 0 never restarts.
     restart_every: int = 100
@@ -347,9 +347,9 @@ class Templates:
         with self._lock:
             self._making = False
 
-    def checkout(self, emit: Callable[[dict], None]) -> tuple[str, int] | None:
-        """A new profile copied from the template, and the template's generation;
-        None when there is no template left to copy."""
+    def checkout(self, emit: Callable[[dict], None]) -> tuple[str, int, bool] | None:
+        """A new profile copied from the template, the template's generation and
+        whether the copy carries the cache; None when there is no template left."""
         with self._lock:
             t = self._current
             if t is None:
@@ -362,12 +362,13 @@ class Templates:
                 return None
             t.left -= 1
             profile = tempfile.mkdtemp(prefix="gbs-clone-")
+            cache = t.cache and not self.cache_off
             try:
-                _copy_profile(t.path, profile, cache=t.cache and not self.cache_off)
+                _copy_profile(t.path, profile, cache=cache)
             except BaseException:
                 shutil.rmtree(profile, ignore_errors=True)
                 raise
-            return profile, t.generation
+            return profile, t.generation, cache
 
     def copy_served(self, generation: int) -> None:
         """A copy of this template was served on its first query."""
@@ -376,18 +377,22 @@ class Templates:
             if t is not None and t.generation == generation:
                 self._refused = 0
 
-    def copy_refused(self, generation: int, emit: Callable[[dict], None]) -> None:
+    def copy_refused(
+        self, generation: int, emit: Callable[[dict], None], cache: bool = False
+    ) -> None:
         """A copy of this template was refused on its first query; the
-        template goes after `refusals` of those in a row."""
+        template goes after `refusals` of those in a row. A refused copy that
+        carried the cache counts toward turning the cache off even when the
+        template has been renewed since it was made."""
         with self._lock:
-            t = self._current
-            if t is None or t.generation != generation:
-                return
-            if t.cache and not self.cache_off:
+            if cache and not self.cache_off:
                 self._cache_refused += 1
                 if self._cache_refused >= CACHE_REFUSALS:
                     self.cache_off = True
                     emit({"event": "clone_cache_off", "refused": self._cache_refused})
+            t = self._current
+            if t is None or t.generation != generation:
+                return
             self._refused += 1
             if self._refused >= self.refusals:
                 reason = (
@@ -459,6 +464,8 @@ class Identity:
     clone: bool = False
     #: The generation of the template a copy was started from.
     template: int | None = None
+    #: Whether a copy started with the template's cache.
+    clone_cache: bool = False
     #: Bytes per host by the end of the warm-up, and inside served pages.
     warm_hosts: dict[str, int] = field(default_factory=dict)
     page_hosts: dict[str, int] = field(default_factory=dict)
@@ -769,6 +776,7 @@ class Scraper:
                 capped = identity.queries >= s.max_queries_per_exit
                 if (
                     s.restart_every
+                    and more
                     and not capped
                     and self._identity is identity
                     and identity.queries - identity.browser_start >= s.restart_every
@@ -781,7 +789,7 @@ class Scraper:
                 return
             if identity.clone and identity.queries == 1 and verdict.refused:
                 # Copies are refused together with the profile they came from.
-                self._templates.copy_refused(identity.template, self._emit)
+                self._templates.copy_refused(identity.template, self._emit, identity.clone_cache)
             last_verdict, last_error = verdict, None
             self.stats.exits_refused += verdict.refused
             self._retire(verdict.kind)
@@ -972,7 +980,7 @@ class Scraper:
         if reopen:
             self._sleep(self._rng.uniform(*s.settle_seconds))
 
-    def _clone(self, profile: str, generation: int) -> Identity:
+    def _clone(self, profile: str, generation: int, cache: bool = False) -> Identity:
         """A new sticky session started from a profile copied off the template."""
         s = self.settings
         session_id = new_session_id()
@@ -1010,6 +1018,7 @@ class Scraper:
             warm_hosts=relay.hosts() if relay is not None else {},
             clone=True,
             template=generation,
+            clone_cache=cache,
         )
 
     def _mint(self) -> Identity | None:
