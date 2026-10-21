@@ -62,6 +62,7 @@ class FakeSession:
         self.direct = []
         self.suspended = 0
         self.blanks = 0
+        self.restarts = []
         # A profile on disk, so copying it can be checked: the cookie database
         # names the session the profile was first made for, and a cache file
         # stands for everything a copy should leave behind.
@@ -96,7 +97,7 @@ class FakeSession:
         return self.profile_dir
 
     def resume(self):
-        pass
+        self.restarts.append(len(self.searched))
 
     def marker(self):
         with open(os.path.join(self.profile_dir, COOKIES)) as fh:
@@ -118,6 +119,7 @@ class FakeSession:
 
     def blank(self):
         self.blanks += 1
+
 
     def next_page(self):
         if not self.script:
@@ -596,7 +598,7 @@ def test_new_exits_start_from_a_copy_of_the_served_profile():
     assert copy.options["profile_dir"] != seed.profile_dir
     assert copy.marker() == seed.marker()
     assert copy.has("Local State") and copy.has(COOKIES + "-journal")
-    assert not copy.has(CACHE)  # the jar travels, the rest of the profile does not
+    assert copy.has(CACHE)  # the jar and the HTTP cache travel
     assert copy.visited == []  # no warm-up of its own
     assert copy.searched == ["c"]
     assert slept.count(45) == 2  # after reopening the seed, and before the copy's first query
@@ -887,3 +889,71 @@ def test_link_traffic_is_in_the_summary_while_the_scraper_stays_open():
 
 def test_the_warm_up_stays_on_each_page_for_half_a_minute_or_so():
     assert Settings().dwell_seconds == (20.0, 45.0)
+
+
+def test_the_browser_restarts_on_its_own_exit_every_n_searches_and_settles():
+    events, slept = [], []
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), restart_every=2)
+    s = scraper([[SERVED] * 5], settings, events=events, sleep=slept.append)
+    records = list(s.run(list("abcde")))
+    assert len(records) == 5 and len(FakeSession.opened) == 1
+    assert FakeSession.opened[0].restarts == [2, 4]
+    assert [e["queries"] for e in events if e["event"] == "restart"] == [2, 4]
+    assert sum(40 <= x <= 60 for x in slept) == 2
+
+
+def test_restart_every_zero_never_restarts_and_a_capped_exit_is_not_restarted():
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), restart_every=0)
+    list(scraper([[SERVED] * 4], settings).run(list("abcd")))
+    assert FakeSession.opened[0].restarts == []
+    settings = Settings(
+        gap_seconds=(0, 0), dwell_seconds=(0, 0), restart_every=2, max_queries_per_exit=2
+    )
+    list(scraper([[SERVED] * 2], settings).run(list("ab")))
+    assert FakeSession.opened[0].restarts == []
+
+
+def test_a_failed_restart_retires_the_exit_and_the_next_one_carries_on():
+    class Broken(FakeSession):
+        def resume(self):
+            raise RuntimeError("browser did not start")
+
+    events = []
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), restart_every=1)
+    records = list(scraper([[SERVED], [SERVED]], settings, events=events, cls=Broken).run(["a", "b"]))
+    assert len(records) == 2 and len(FakeSession.opened) == 2
+    assert sum(e["event"] == "restart_failed" for e in events) == 2
+
+
+def test_restart_every_must_not_be_negative():
+    with pytest.raises(ValueError):
+        Settings(restart_every=-1)
+
+
+def test_copies_leave_the_cache_behind_when_clone_cache_is_off():
+    s = scraper([[SERVED, SERVED], [SERVED]], clone_settings(clone_cache=False))
+    list(s.run(["a", "b", "c"]))
+    seed, copy = FakeSession.opened
+    assert copy.marker() == seed.marker() and not copy.has(CACHE)
+
+
+def test_two_refused_copies_with_the_cache_switch_the_cache_off_for_the_run():
+    events = []
+    scripts = [[SERVED, SERVED], [REFUSED], [SERVED, SERVED], [REFUSED], [SERVED, SERVED], [SERVED]]
+    s = scraper(scripts, clone_settings(), events=events)
+    records = list(s.run(list("abcdefg")))
+    assert [r["search_metadata"]["status"] for r in records] == ["Success"] * 7
+    assert [e["refused"] for e in events if e["event"] == "clone_cache_off"] == [2]
+    last = FakeSession.opened[-1]
+    assert last.options["profile_dir"] and last.searched == ["g"] and not last.has(CACHE)
+    assert [e["cache"] for e in events if e["event"] == "template"] == [True, True, False]
+
+
+def test_a_restart_leaves_the_warm_profile_as_the_new_template():
+    events = []
+    settings = clone_settings(restart_every=2, max_queries_per_exit=5)
+    s = scraper([[SERVED] * 5], settings, events=events)
+    list(s.run(list("abcde")))
+    made = [e for e in events if e["event"] == "template"]
+    assert [bool(e.get("renewed")) for e in made] == [False, True, True]
+    assert [e["template"] for e in events if e["event"] == "restart"] == [True, True]

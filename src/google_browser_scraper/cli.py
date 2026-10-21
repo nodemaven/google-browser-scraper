@@ -139,8 +139,22 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--max-per-exit",
         type=int,
-        default=50,
-        help="queries before an exit is retired even if still served (default 50)",
+        default=300,
+        help="queries before an exit is retired even if still served (default 300)",
+    )
+    p.add_argument(
+        "--no-clone-cache",
+        action="store_true",
+        help="copies carry the cookie jar only, not the browser cache (by default they "
+        "carry both, until two copies with the cache are refused)",
+    )
+    p.add_argument(
+        "--restart-every",
+        type=int,
+        default=100,
+        metavar="N",
+        help="searches before the browser is restarted on the same profile and exit, "
+        "which keeps its memory from growing (default 100; 0 never)",
     )
     p.add_argument(
         "--spare",
@@ -272,6 +286,8 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
         warmup=args.warmup,
         pages=pages,
         max_queries_per_exit=args.max_per_exit,
+        restart_every=args.restart_every,
+        clone_cache=not args.no_clone_cache,
         spare=args.spare,
         clones=args.clone,
         clone_max_age=args.clone_max_age * 60,

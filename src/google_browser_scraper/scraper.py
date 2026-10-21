@@ -78,6 +78,16 @@ _PROFILE_LOCKS = shutil.ignore_patterns("Singleton*", "lockfile", "*.lock")
 #: Where Chromium keeps the cookie database, newest layout first.
 _COOKIE_DIRS = (os.path.join("Default", "Network"), "Default")
 
+#: Chromium's HTTP cache. Google's shared scripts, styles and images land here
+#: during a hold, which is what makes later pages cheaper; a copy that carries
+#: it starts with cheap pages. The compiled-code cache next to it saves no
+#: traffic and stays behind.
+_HTTP_CACHE = os.path.join("Default", "Cache")
+
+#: Copies carrying the HTTP cache refused on their first query, over a whole
+#: run, after which copies carry the cookie jar alone.
+CACHE_REFUSALS = 2
+
 
 def _retry_copy(copy, dest: str, attempts: int) -> None:
     """Run `copy` into a fresh `dest`, retrying on OSError.
@@ -96,17 +106,26 @@ def _retry_copy(copy, dest: str, attempts: int) -> None:
             time.sleep(1.0)
 
 
-def _copy_profile(source: str, dest: str, attempts: int = 5) -> None:
-    """Copy a closed browser profile into `dest` (created or replaced)."""
-    _retry_copy(lambda: shutil.copytree(source, dest, ignore=_PROFILE_LOCKS), dest, attempts)
+def _copy_profile(source: str, dest: str, attempts: int = 5, cache: bool = True) -> None:
+    """Copy a closed browser profile into `dest` (created or replaced); without
+    `cache`, its HTTP cache stays behind."""
+    skip = os.path.normcase(os.path.join(source, _HTTP_CACHE))
+
+    def ignore(folder: str, names: list[str]) -> set[str]:
+        left = set(_PROFILE_LOCKS(folder, names))
+        if not cache and os.path.normcase(os.path.join(folder, "Cache")) == skip:
+            left.add("Cache")
+        return left
+
+    _retry_copy(lambda: shutil.copytree(source, dest, ignore=ignore), dest, attempts)
 
 
-def _copy_jar(source: str, dest: str, attempts: int = 5) -> None:
+def _copy_jar(source: str, dest: str, attempts: int = 5, cache: bool = False) -> None:
     """Copy the cookie jar of a closed profile into a new profile at `dest`.
 
     The new profile holds the cookie database and `Local State`, which carries
-    the key that decrypts it, and nothing else: storage, cache and history stay
-    behind. That is a few tens of kilobytes instead of tens of megabytes.
+    the key that decrypts it, and with `cache` the HTTP cache; storage, history
+    and the rest stay behind.
     """
     for rel in _COOKIE_DIRS:
         folder = os.path.join(source, rel)
@@ -123,6 +142,12 @@ def _copy_jar(source: str, dest: str, attempts: int = 5) -> None:
         state = os.path.join(source, "Local State")
         if os.path.isfile(state):
             shutil.copy2(state, os.path.join(dest, "Local State"))
+        if cache and os.path.isdir(os.path.join(source, _HTTP_CACHE)):
+            shutil.copytree(
+                os.path.join(source, _HTTP_CACHE),
+                os.path.join(dest, _HTTP_CACHE),
+                ignore=_PROFILE_LOCKS,
+            )
 
     _retry_copy(copy, dest, attempts)
 
@@ -159,8 +184,9 @@ class Settings:
     warmup: str = ladder.DEFAULT
     pages: int = 1
     #: Each retirement throws away a warm-up worth tens of pages of traffic,
-    #: and a served exit keeps being served far past ten queries.
-    max_queries_per_exit: int = 50
+    #: and a served exit keeps being served for hundreds of queries; holds end
+    #: on the exit dropping far more often than on Google refusing it.
+    max_queries_per_exit: int = 300
     max_exits_per_query: int = 3
     breaker: int = 6
     gap_seconds: tuple[float, float] = (2.0, 5.0)
@@ -205,6 +231,15 @@ class Settings:
     #: copy that is served resets the count. Below `breaker`, which would stop
     #: the run first.
     clone_refusals: int = 1
+    #: Searches on one browser before it is closed and opened again on the
+    #: same profile and exit. Google's renderer grows by several MB a search
+    #: and a new tab reuses it, so only a new browser gives the memory back;
+    #: it waits `settle_seconds` before searching again. 0 never restarts.
+    restart_every: int = 100
+    #: Copies carry the template's HTTP cache, so a new exit starts with the
+    #: cheap pages of a long hold. After CACHE_REFUSALS refused copies that
+    #: carried it, the rest of the run copies the cookie jar alone.
+    clone_cache: bool = True
 
     def __post_init__(self) -> None:
         engines.get(self.engine)
@@ -218,6 +253,8 @@ class Settings:
             raise ValueError(f"clones must be between 0 and {MAX_CLONES}")
         if self.clone_max_age <= 0:
             raise ValueError("clone_max_age must be positive")
+        if self.restart_every < 0:
+            raise ValueError("restart_every must be 0 or more")
         if self.clone_refusals < 1:
             raise ValueError("clone_refusals must be at least 1")
         if self.clone_refusals > 1 and self.clone_refusals >= self.breaker:
@@ -240,6 +277,8 @@ class Template:
     made_at: float
     left: int
     generation: int = 0
+    #: Whether the folder carries the HTTP cache.
+    cache: bool = False
 
 
 class Templates:
@@ -260,6 +299,10 @@ class Templates:
         self._current: Template | None = None
         self._making = False
         self._generation = 0
+        self._cache_refused = 0
+        #: Set for the rest of the run once CACHE_REFUSALS copies carrying the
+        #: cache were refused on their first query.
+        self.cache_off = False
 
     def wanted(self) -> bool:
         """Whether a served exit should leave a template now."""
@@ -278,12 +321,27 @@ class Templates:
             self._making = True
             return True
 
-    def put(self, path: str) -> None:
+    def put(self, path: str, cache: bool = False) -> None:
         with self._lock:
             self._making = False
             self._generation += 1
             self._refused = 0
-            self._current = Template(path, time.monotonic(), self.copies, self._generation)
+            self._current = Template(path, time.monotonic(), self.copies, self._generation, cache)
+
+    def renew(self, path: str, cache: bool) -> bool:
+        """Replace the template with a newer copy of a served profile, unless
+        another one is being made right now. The old folder goes; copies
+        already made from it carry on."""
+        with self._lock:
+            if not self.copies or self._making:
+                return False
+            old, self._current = self._current, None
+            if old is not None:
+                shutil.rmtree(old.path, ignore_errors=True)
+            self._generation += 1
+            self._refused = 0
+            self._current = Template(path, time.monotonic(), self.copies, self._generation, cache)
+            return True
 
     def abort(self) -> None:
         with self._lock:
@@ -305,7 +363,7 @@ class Templates:
             t.left -= 1
             profile = tempfile.mkdtemp(prefix="gbs-clone-")
             try:
-                _copy_profile(t.path, profile)
+                _copy_profile(t.path, profile, cache=t.cache and not self.cache_off)
             except BaseException:
                 shutil.rmtree(profile, ignore_errors=True)
                 raise
@@ -325,6 +383,11 @@ class Templates:
             t = self._current
             if t is None or t.generation != generation:
                 return
+            if t.cache and not self.cache_off:
+                self._cache_refused += 1
+                if self._cache_refused >= CACHE_REFUSALS:
+                    self.cache_off = True
+                    emit({"event": "clone_cache_off", "refused": self._cache_refused})
             self._refused += 1
             if self._refused >= self.refusals:
                 reason = (
@@ -399,6 +462,8 @@ class Identity:
     #: Bytes per host by the end of the warm-up, and inside served pages.
     warm_hosts: dict[str, int] = field(default_factory=dict)
     page_hosts: dict[str, int] = field(default_factory=dict)
+    #: `queries` when the current browser was opened.
+    browser_start: int = 0
     _window: dict[str, int] = field(default_factory=dict, repr=False)
 
     def bytes(self) -> int | None:
@@ -702,6 +767,13 @@ class Scraper:
                 if s.stop_after_read and self._identity is identity:
                     self._leave_page(identity)
                 capped = identity.queries >= s.max_queries_per_exit
+                if (
+                    s.restart_every
+                    and not capped
+                    and self._identity is identity
+                    and identity.queries - identity.browser_start >= s.restart_every
+                ):
+                    self._restart(identity)
                 if self._identity is identity and more and self._wants_template(identity):
                     self._take_template(identity, reopen=not capped)
                 if self._identity is identity and capped:
@@ -885,7 +957,8 @@ class Scraper:
         dest = tempfile.mkdtemp(prefix="gbs-template-")
         try:
             source = identity.session.suspend()
-            _copy_jar(source, dest)
+            cache = s.clone_cache and not self._templates.cache_off
+            _copy_jar(source, dest, cache=cache)
             if reopen:
                 identity.session.resume()
         except Exception as exc:
@@ -894,8 +967,8 @@ class Scraper:
             self._event("template_failed", identity, error=describe_error(exc))
             self._retire(f"error: {describe_error(exc)}")
             return
-        self._templates.put(dest)
-        self._event("template", identity, copies=s.clones)
+        self._templates.put(dest, cache)
+        self._event("template", identity, copies=s.clones, cache=cache)
         if reopen:
             self._sleep(self._rng.uniform(*s.settle_seconds))
 
@@ -1093,6 +1166,41 @@ class Scraper:
             self._warmer.shutdown(wait=True)
             self._warmer = None
         self._cancel = threading.Event()
+
+    def _restart(self, identity: Identity) -> None:
+        """Close the browser and open it again on the same profile and exit."""
+        identity.browser_start = identity.queries
+        try:
+            source = identity.session.suspend()
+            renewed = self._renew_template(identity, source)
+            identity.session.resume()
+        except Exception as exc:
+            self._event("restart_failed", identity, error=describe_error(exc))
+            self._retire(f"error: {describe_error(exc)}")
+            return
+        self._event("restart", identity, queries=identity.queries, template=renewed)
+        self._sleep(self._rng.uniform(*self.settings.settle_seconds))
+
+    def _renew_template(self, identity: Identity, source: str) -> bool:
+        """While the browser is closed for a restart, leave its profile as the
+        new template: the cookies are fresh and the cache is warm, where a
+        template taken on an exit's first query has an almost empty cache."""
+        s = self.settings
+        if not s.clones or not source:
+            return False
+        cache = s.clone_cache and not self._templates.cache_off
+        dest = tempfile.mkdtemp(prefix="gbs-template-")
+        try:
+            _copy_jar(source, dest, cache=cache)
+        except Exception as exc:
+            shutil.rmtree(dest, ignore_errors=True)
+            self._event("template_failed", identity, error=describe_error(exc))
+            return False
+        if not self._templates.renew(dest, cache):
+            shutil.rmtree(dest, ignore_errors=True)
+            return False
+        self._event("template", identity, copies=s.clones, cache=cache, renewed=True)
+        return True
 
     def _leave_page(self, identity: Identity) -> None:
         try:

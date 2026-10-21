@@ -84,16 +84,17 @@ class Pool:
         first = self._scrapers[0].settings
         for scraper in self._scrapers[1:]:
             s = scraper.settings
-            if (s.clones, s.clone_max_age, s.clone_refusals, s.breaker) != (
+            if (s.clones, s.clone_max_age, s.clone_refusals, s.clone_cache, s.breaker) != (
                 first.clones,
                 first.clone_max_age,
                 first.clone_refusals,
+                first.clone_cache,
                 first.breaker,
             ):
                 raise ValueError(
                     "workers share one cookie template and one breaker, so clones, "
-                    "clone_max_age, clone_refusals and breaker must be the same for "
-                    "every worker"
+                    "clone_max_age, clone_refusals, clone_cache and breaker must be the "
+                    "same for every worker"
                 )
         templates = Templates(first.clones, first.clone_max_age, first.clone_refusals)
         breaker = Breaker(first.breaker)
