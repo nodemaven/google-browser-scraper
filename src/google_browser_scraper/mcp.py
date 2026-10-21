@@ -56,7 +56,7 @@ TOOL = {
 
 
 def compact(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """What a model needs from the records, without SerpApi's bookkeeping."""
+    """What a model needs from the records, without the SERP API bookkeeping."""
     out: dict[str, Any] = {"results": [], "related_questions": [], "related_searches": []}
     errors = []
     for record in records:

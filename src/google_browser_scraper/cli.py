@@ -66,7 +66,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     search.set_defaults(handler=_search)
 
-    serve = sub.add_parser("serve", help="SerpApi-style HTTP API: /search.json?q=...")
+    serve = sub.add_parser("serve", help="HTTP API in the usual SERP API format: /search.json?q=...")
     _scraper_options(serve)
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)

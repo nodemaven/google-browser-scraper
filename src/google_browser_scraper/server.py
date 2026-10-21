@@ -1,9 +1,9 @@
-"""`serve`: a small SerpApi-style HTTP API over one scraper.
+"""`serve`: a small HTTP API in the usual SERP API format over one scraper.
 
     GET /search.json?q=best+running+shoes[&pages=2][&api_key=...]
     GET /health
 
-One page returns the record itself, in SerpApi's field names, so a client
+One page returns the record itself, in the usual SERP API field names, so a client
 written for a paid SERP API can point its base URL here. More pages return a
 JSON array of records. Requests are served one at a time: a single browser
 identity is held between them, which is the point - a served exit answers the

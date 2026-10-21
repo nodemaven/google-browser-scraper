@@ -24,7 +24,7 @@ def record():
     )
 
 
-def test_record_is_serpapi_shaped():
+def test_record_is_serp_api_shaped():
     r = record()
     assert r["search_metadata"]["status"] == "Success"
     assert r["search_parameters"] == {

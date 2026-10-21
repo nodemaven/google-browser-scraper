@@ -1,5 +1,5 @@
 # google-browser-scraper: headful Chromium on a virtual display, serving the
-# SerpApi-style API on port 8000 by default.
+# HTTP search API on port 8000 by default.
 #
 #   docker build -t google-browser-scraper .
 #   docker run --rm google-browser-scraper doctor

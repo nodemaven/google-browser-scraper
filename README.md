@@ -24,6 +24,12 @@
   <img src="https://raw.githubusercontent.com/nodemaven/google-browser-scraper/main/assets/demo.gif" alt="A real Chrome window showing Google results next to the JSON the scraper produced for them" width="900">
 </p>
 
+**Latest benchmark, v0.0.6** (267 US searches, 2 browsers on one 4-core server):
+
+- 100% of searches answered (267 of 267)
+- ~1.8 MB of proxy traffic per search
+- ~11 s per search per browser
+
 Scrape Google search results (SERP) with a real Chrome browser and your own
 residential proxy, and get clean JSON back. Use it as a CLI, a Python library,
 a local HTTP API, or an MCP server that gives AI agents live Google search.
@@ -132,7 +138,7 @@ One JSON object per results page:
 }
 ```
 
-The schema is intentionally SerpApi-like: `organic_results`, `ads`,
+The schema uses the field names common to SERP APIs: `organic_results`, `ads`,
 `related_questions`, `related_searches`, `pagination` and `search_metadata`, so
 simple consumers can often switch with minimal mapping. Knowledge panels,
 shopping, images and other special blocks are not parsed.

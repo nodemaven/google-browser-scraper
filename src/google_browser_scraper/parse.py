@@ -1,6 +1,6 @@
 """Read results out of a Google results page that `classify` called served.
 
-Field names follow SerpApi's JSON.
+Field names follow the usual SERP API JSON.
 
 Google wraps every result link in an encrypted `/goto?url=...` redirect. Some
 pages still pair each token with its destination in their inline JSON, so the
@@ -24,7 +24,7 @@ _AFTER_TOKEN = re.compile(r'"\],\["(https?:[^"\\]*(?:\\.[^"\\]*)*)"')
 
 
 def parse_serp(page: str, *, base_url: str = GOOGLE) -> dict[str, Any]:
-    """Parse one results page into SerpApi-shaped blocks.
+    """Parse one results page into blocks shaped like a SERP API's.
 
     Missing blocks come back as empty lists rather than absent keys, so a
     caller can tell "this page had no ads" from "this parser has no ads field".

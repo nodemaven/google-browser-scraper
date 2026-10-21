@@ -1,6 +1,6 @@
 """Result records and the writers that put them on disk.
 
-One record per results page, shaped like SerpApi's JSON plus an `exit` block of
+One record per results page, shaped like the usual SERP API JSON plus an `exit` block of
 our own that says which identity answered. A failed query is a record too, with
 `search_metadata.status == "Error"` and an `error` string, so a run's output
 accounts for every query it was given.
