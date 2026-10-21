@@ -10,6 +10,7 @@
 [![python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://pypi.org/project/google-browser-scraper/)
 [![tests](https://img.shields.io/github/actions/workflow/status/nodemaven/google-browser-scraper/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/nodemaven/google-browser-scraper/actions/workflows/ci.yml)
 [![license](https://img.shields.io/pypi/l/google-browser-scraper?style=flat-square)](https://opensource.org/licenses/MIT)
+[![docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/nodemaven/google-browser-scraper/pkgs/container/google-browser-scraper)
 
 <a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="Google Browser Scraper on DevHunt" height="44"></a>
 
@@ -18,6 +19,10 @@
 </div>
 
 <br>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/nodemaven/google-browser-scraper/main/assets/demo.gif" alt="A real Chrome window showing Google results next to the JSON the scraper produced for them" width="900">
+</p>
 
 Scrape Google search results (SERP) with a real Chrome browser and your own
 residential proxy, and get clean JSON back. Use it as a CLI, a Python library,
@@ -169,13 +174,16 @@ It exposes one tool, `google_search(query, pages)`.
 
 ## Docker
 
+A ready image is published to GitHub Container Registry with every release:
+
 ```bash
-docker build -t google-browser-scraper .
-docker run --rm google-browser-scraper doctor
+docker run --rm ghcr.io/nodemaven/google-browser-scraper doctor
 docker run --rm -p 8000:8000 -e GBS_API_KEY=change-me \
   -e GBS_PROXY='http://USER-session-{session}:PASS@gate.example.com:7000' \
-  google-browser-scraper serve --host 0.0.0.0
+  ghcr.io/nodemaven/google-browser-scraper serve --host 0.0.0.0
 ```
+
+To build it yourself: `docker build -t google-browser-scraper .`
 
 ## How it works
 
@@ -189,8 +197,15 @@ docker run --rm -p 8000:8000 -e GBS_API_KEY=change-me \
    exit it refuses is dropped and the query is retried on a new one. If exit
    after exit is refused, the run stops instead of spending more traffic.
 
-**Holding exits.** A served exit is kept for up to 50 queries. Every new exit
-pays for a warm-up, so a short cap mostly buys more warm-up traffic. A browser
+<details>
+<summary><b>More detail: holding exits, copied cookies, result links, traffic</b></summary>
+
+<br>
+
+**Holding exits.** A served exit is kept for up to 300 queries. Every new exit
+pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 100
+searches the browser is restarted on the same profile and exit, which keeps its
+memory from growing over a long hold. A browser
 error on a search is retried once on the same exit before the exit is dropped;
 a network error drops it at once.
 
@@ -201,6 +216,13 @@ follows the cookies more than the address, so a copy usually starts out served
 and costs a few MB instead of a full warm-up. A copy waits 40-60 seconds after
 its browser starts before the first search.
 
+**Copying the cache.** Pages get cheaper as an exit is held, because the
+browser cache fills with Google's shared scripts and images. Copies carry that
+cache too, so a new exit starts with cheap pages, and the copy is refreshed
+from the held exit at each browser restart, when its cache is warm. If two
+copies carrying the cache are refused on their first search, the rest of the
+run copies cookies only (`--no-clone-cache` does that from the start).
+
 **Result links.** Google wraps result links in encrypted `/goto` redirects.
 Each one is resolved with a small request through a separate short-lived proxy
 session, a few at a time, in the background while the browser goes on to the
@@ -210,18 +232,27 @@ next query. Records still come out in the order each browser searched them.
 host and blocks a large model download Chrome otherwise makes on every fresh
 profile.
 
+</details>
+
 The defaults come from measurements in
 [proxy-benchmark](https://github.com/nodemaven/proxy-benchmark).
 
 ## Options
 
+<details>
+<summary><b>All search options</b></summary>
+
+<br>
+
 | Option | Default | What it does |
 |---|---|---|
 | `--workers N` | 1 | Search on N exits at once, one browser each, from one list of queries |
-| `--max-per-exit N` | 50 | Queries before a served exit is retired |
+| `--max-per-exit N` | 300 | Queries before a served exit is retired |
+| `--restart-every N` | 100 | Searches before the browser restarts on the same profile and exit; `0` never |
 | `--clone N` | 10 | New exits started from copied cookies; `0` turns copying off |
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |
+| `--no-clone-cache` | | Copies carry cookies only, not the browser cache |
 | `--spare N` | 0 | Exits warmed in the background so a retired one is replaced at once; each costs a warm-up |
 | `--direct` | `all` | Open results pages directly: `all`, `follow-ups` (all but an exit's first query), `none` |
 | `--input` | `type` | How a query goes into the search box: `type`, `insert`, `words` |
@@ -233,6 +264,8 @@ The defaults come from measurements in
 | `--save-html DIR` | | Keep every page's HTML, gzipped |
 
 `google-browser-scraper search --help` lists the rest.
+
+</details>
 
 ## Proxies
 
