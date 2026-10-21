@@ -120,7 +120,6 @@ class FakeSession:
     def blank(self):
         self.blanks += 1
 
-
     def next_page(self):
         if not self.script:
             return None
@@ -920,7 +919,8 @@ def test_a_failed_restart_retires_the_exit_and_the_next_one_carries_on():
 
     events = []
     settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), restart_every=1)
-    records = list(scraper([[SERVED], [SERVED]], settings, events=events, cls=Broken).run(["a", "b"]))
+    s = scraper([[SERVED], [SERVED]], settings, events=events, cls=Broken)
+    records = list(s.run(["a", "b"]))
     assert len(records) == 2 and len(FakeSession.opened) == 2
     assert sum(e["event"] == "restart_failed" for e in events) == 2
 
