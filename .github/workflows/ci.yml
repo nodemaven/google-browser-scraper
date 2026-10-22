@@ -12,6 +12,9 @@ jobs:
   test:
     name: test (${{ matrix.os }}, py${{ matrix.python }})
     runs-on: ${{ matrix.os }}
+    # A healthy job takes a few minutes; a stuck install should fail, not
+    # hold the pull request for the six-hour default.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
