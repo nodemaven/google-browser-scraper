@@ -46,10 +46,12 @@ class FakeScraper:
         self.stats = Stats()
         self.refuse = refuse
         self.threads, self.calls, self.closed, self.resets = set(), [], False, 0
+        self.settle_flags, self.settled = [], 0
 
-    def search(self, query):
+    def search(self, query, settle=True):
         self.threads.add(threading.get_ident())
         self.calls.append((query, self.settings.pages))
+        self.settle_flags.append(settle)
         if self.refuse:
             raise ExitsRefused("6 exits in a row")
         return [record(query, p) for p in range(1, self.settings.pages + 1)]
@@ -59,6 +61,10 @@ class FakeScraper:
 
     def reset_breaker(self):
         self.resets += 1
+
+    def settle(self):
+        self.threads.add(threading.get_ident())
+        self.settled += 1
 
     def close(self):
         self.closed = True
@@ -117,6 +123,39 @@ def test_one_page_returns_the_record_itself(api, worker):
     assert status == 200
     assert body["search_parameters"] == {"q": "running shoes", "page": 1}
     assert worker.fake.calls == [("running shoes", 1)]
+
+
+def test_the_upkeep_is_left_until_the_answer_is_out(api, worker):
+    assert get(api() + "/search.json?q=x")[0] == 200
+    worker.call(lambda s: None)  # jobs run in order: the settle job is done by now
+    assert worker.fake.settle_flags == [False]
+    assert worker.fake.settled == 1
+    assert len(worker.fake.threads) == 1
+
+
+def test_no_upkeep_is_queued_for_a_failed_search(monkeypatch):
+    fake = FakeScraper(refuse=True)
+    worker = Worker(lambda: fake, log=lambda m: None).start()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(worker, api_key=None, max_pages=3))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        assert get(f"http://127.0.0.1:{server.server_port}/search.json?q=x")[0] == 503
+        worker.call(lambda s: None)
+    finally:
+        server.shutdown()
+        worker.stop()
+    assert fake.settled == 0
+
+
+def test_a_failed_background_job_is_logged():
+    logs = []
+    worker = Worker(lambda: FakeScraper(), log=logs.append).start()
+    try:
+        worker.after(lambda s: 1 / 0)
+        worker.call(lambda s: None)
+    finally:
+        worker.stop()
+    assert any("background job failed: ZeroDivisionError" in m for m in logs)
 
 
 def test_several_pages_return_an_array_and_restore_the_setting(api, worker):
@@ -226,6 +265,8 @@ def test_mcp_tool_call_returns_compact_results(worker):
     }
     assert len(body["results"]) == 2 and body["related_questions"] == ["Q?", "Q?"]
     assert worker.fake.calls[-1] == ("shoes", 2)
+    worker.call(lambda s: None)
+    assert worker.fake.settle_flags == [False] and worker.fake.settled == 1
 
 
 def test_mcp_errors(worker):

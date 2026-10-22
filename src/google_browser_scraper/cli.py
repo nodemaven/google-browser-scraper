@@ -73,12 +73,16 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--max-pages", type=int, default=3)
-    serve.add_argument("--prewarm", action="store_true", help="warm an exit at startup")
+    serve.add_argument(
+        "--prewarm", action="store_true", help="find an exit Google serves before the first request"
+    )
     serve.set_defaults(handler=_serve)
 
     mcp = sub.add_parser("mcp", help="MCP server over stdio with a google_search tool")
     _scraper_options(mcp)
-    mcp.add_argument("--prewarm", action="store_true", help="warm an exit at startup")
+    mcp.add_argument(
+        "--prewarm", action="store_true", help="find an exit Google serves before the first call"
+    )
     mcp.set_defaults(handler=_mcp)
 
     parse = sub.add_parser("parse", help="parse a saved results page, offline")

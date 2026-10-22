@@ -24,7 +24,7 @@ from typing import IO, Any
 from . import __version__
 from .output import use_utf8
 from .scraper import ExitsRefused
-from .server import Worker, search_job
+from .server import Worker, search_job, settle_job
 
 SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MAX_PAGES = 3
@@ -151,6 +151,8 @@ class McpServer:
             return _tool_error(str(exc))
         except Exception as exc:
             return _tool_error(f"{type(exc).__name__}: {exc}")
+        # The worker thread does the upkeep while this one writes the answer.
+        self._worker.after(settle_job)
         body = compact(records)
         return {
             "content": [{"type": "text", "text": json.dumps(body, ensure_ascii=False)}],
