@@ -738,12 +738,24 @@ class Scraper:
         results page comes back, and a server's first caller does not pay for a
         refused exit and a second warm-up. Raises `ExitsRefused` when the
         breaker trips first.
+
+        The query is one page with no link resolution: its records are thrown
+        away, so neither more pages nor /goto requests buy anything. Its upkeep
+        is done here, so the first real query does not pay for it. With one
+        query per exit (`max_queries_per_exit=1`) that upkeep retires the
+        served exit at once and nothing can be held for the first caller.
         """
+        s = self.settings
         query = self._rng.choice(PREWARM_QUERIES)
-        while True:
-            records = [self._finish(r) for r in self._query(query)]
-            if records and records[0]["search_metadata"]["status"] == "Success":
-                return
+        pages, links = s.pages, s.resolve_links
+        s.pages, s.resolve_links = 1, False
+        try:
+            while True:
+                records = [self._finish(r) for r in self._query(query)]
+                if records and records[0]["search_metadata"]["status"] == "Success":
+                    return
+        finally:
+            s.pages, s.resolve_links = pages, links
 
     def reset_breaker(self) -> None:
         self._breaker.reset()
@@ -1013,15 +1025,19 @@ class Scraper:
         s = self.settings
         if not self._templates.claim():
             return  # another worker is leaving one right now
-        dest = tempfile.mkdtemp(prefix="gbs-template-")
+        dest = None
         try:
+            # Inside the try: a claimed template that is neither put nor
+            # aborted would keep every worker from making one again.
+            dest = tempfile.mkdtemp(prefix="gbs-template-")
             source = identity.session.suspend()
             cache = s.clone_cache and not self._templates.cache_off
             _copy_jar(source, dest, cache=cache)
             if reopen:
                 identity.session.resume()
         except Exception as exc:
-            shutil.rmtree(dest, ignore_errors=True)
+            if dest is not None:
+                shutil.rmtree(dest, ignore_errors=True)
             self._templates.abort()
             self._event("template_failed", identity, error=describe_error(exc))
             self._retire(f"error: {describe_error(exc)}")

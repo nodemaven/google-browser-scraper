@@ -160,8 +160,10 @@ curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 
 Same record format as above. Requests run one at a time on one held identity.
 `--prewarm` searches once at startup, moving to a new exit until Google serves
-one, so the first request does not wait for a warm-up. Set `GBS_API_KEY` to
-require a key; without one the server only listens on localhost.
+one, so a request sent after it does not wait for a warm-up. `/health` answers
+503 `warming` until then; a request sent earlier waits in line behind it. Set
+`GBS_API_KEY` to require a key; without one the server only listens on
+localhost.
 
 ## Use it from an AI agent (MCP)
 
