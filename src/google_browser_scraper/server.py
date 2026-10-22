@@ -9,6 +9,9 @@ JSON array of records. Requests are served one at a time: a single browser
 identity is held between them, which is the point - a served exit answers the
 next query too.
 
+`/health` answers 503 `warming` while `--prewarm` is still looking for an exit
+Google serves, and 503 `busy` when a long search holds the scraper.
+
 Set GBS_API_KEY to require `api_key=` or `Authorization: Bearer`; without it the
 server refuses to listen anywhere but loopback.
 """
@@ -23,6 +26,7 @@ import sys
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -31,6 +35,9 @@ from .scraper import ExitsRefused, Scraper
 
 REQUEST_TIMEOUT_S = 900
 STARTUP_TIMEOUT_S = 60
+#: How long `stop()` waits for the job in hand. Upkeep after a query - a browser
+#: restart or a template copy, each with a 40-60 s settle - can take this long.
+STOP_TIMEOUT_S = 120
 
 
 class Worker:
@@ -60,6 +67,9 @@ class Worker:
         self._jobs: queue.Queue = queue.Queue()
         self._thread = threading.Thread(target=self._loop, name="gbs-worker", daemon=True)
         self._started = threading.Event()
+        #: Set once the prewarm is over, served or not (at once without one).
+        self.ready = threading.Event()
+        self._stopping = threading.Event()
         self._lock = threading.Lock()
         self._build_error: BaseException | None = None
         self._stopped: BaseException | None = None
@@ -86,19 +96,27 @@ class Worker:
         return self.submit(job).result(timeout=timeout)
 
     def after(self, job: Callable[[Scraper], Any]) -> None:
-        """Queue a job nobody waits for; a failure is logged, not lost."""
+        """Queue a job nobody waits for; a failure is logged, not lost.
+
+        Skipped once `stop()` has been called: it is upkeep for a next query
+        that will not come, and running it would delay closing the browser.
+        """
+
+        def guarded(scraper: Scraper) -> Any:
+            return None if self._stopping.is_set() else job(scraper)
 
         def report(future: Future) -> None:
             if not future.cancelled() and future.exception() is not None:
                 exc = future.exception()
                 self._log(f"background job failed: {type(exc).__name__}: {exc}")
 
-        self.submit(job).add_done_callback(report)
+        self.submit(guarded).add_done_callback(report)
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = STOP_TIMEOUT_S) -> None:
+        self._stopping.set()
         if self._thread.is_alive():
             self._jobs.put(None)
-            self._thread.join(timeout=30)
+            self._thread.join(timeout=timeout)
 
     def _loop(self) -> None:
         try:
@@ -118,6 +136,7 @@ class Worker:
                 except Exception as exc:
                     self._log(f"prewarm failed: {type(exc).__name__}: {exc}")
                     self.scraper.reset_breaker()
+            self.ready.set()
             while True:
                 item = self._jobs.get()
                 if item is None:
@@ -141,6 +160,7 @@ class Worker:
 
     def _shut_down(self, cause: BaseException) -> None:
         """Refuse new jobs and fail the ones still queued."""
+        self.ready.set()  # nothing is warming any more; /health reports the failure
         with self._lock:
             self._stopped = cause
             while True:
@@ -192,7 +212,14 @@ def make_handler(worker: Worker, *, api_key: str | None, max_pages: int):
             if api_key and not self._authorized(params):
                 return self._send(401, {"error": "missing or wrong api_key"})
             if parts.path == "/health":
-                summary = worker.call(lambda s: s.stats.summary(), timeout=30)
+                if not worker.ready.is_set():
+                    return self._send(503, {"status": "warming"})
+                try:
+                    summary = worker.call(lambda s: s.stats.summary(), timeout=30)
+                except FutureTimeout:
+                    return self._send(503, {"status": "busy"})
+                except Exception as exc:
+                    return self._send(503, {"status": "down", "error": str(exc)})
                 return self._send(200, {"status": "ok", "stats": summary})
             if parts.path not in ("/search", "/search.json"):
                 return self._send(404, {"error": "use /search.json?q=... or /health"})
@@ -211,8 +238,11 @@ def make_handler(worker: Worker, *, api_key: str | None, max_pages: int):
                 return self._send(503, {"error": str(exc)})
             except Exception as exc:
                 return self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
-            self._send(200, records[0] if pages == 1 and len(records) == 1 else records)
+            # Queued before the answer is written: the worker does the upkeep
+            # while this thread sends, and a client that hangs up mid-answer
+            # does not leave it for the next request to pay for.
             worker.after(settle_job)
+            self._send(200, records[0] if pages == 1 and len(records) == 1 else records)
 
         def _authorized(self, params: dict[str, str]) -> bool:
             given = params.get("api_key") or ""

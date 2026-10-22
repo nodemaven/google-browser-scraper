@@ -68,6 +68,7 @@ class FakeSession:
         self.direct = []
         self.suspended = 0
         self.blanks = 0
+        self.pages_turned = 0
         self.restarts = []
         # A profile on disk, so copying it can be checked: the cookie database
         # names the session the profile was first made for, and a cache file
@@ -129,6 +130,7 @@ class FakeSession:
     def next_page(self):
         if not self.script:
             return None
+        self.pages_turned += 1
         self._spend(PAGE_BYTES, GOOGLE_HOST)
         return self._next()
 
@@ -207,7 +209,7 @@ def test_a_query_refused_on_every_exit_is_reported_not_skipped():
 def test_breaker_stops_the_run_after_consecutive_refusals():
     settings = Settings(breaker=3, gap_seconds=(0, 0), dwell_seconds=(0, 0))
     with pytest.raises(ExitsRefused):
-        list(scraper([[REFUSED]] * 5, settings).run(["a", "b"]))
+        list(scraper([[REFUSED] for _ in range(5)], settings).run(["a", "b"]))
     assert len(FakeSession.opened) == 3
     assert all(s.closed for s in FakeSession.opened)
 
@@ -383,7 +385,7 @@ def test_prewarm_moves_past_refused_exits_until_one_is_served():
 
 
 def test_prewarm_gives_up_when_the_breaker_trips():
-    s = scraper([[REFUSED]] * 6)
+    s = scraper([[REFUSED] for _ in range(6)])
     with pytest.raises(ExitsRefused):
         s.prewarm()
     assert len(FakeSession.opened) == 6
@@ -1061,3 +1063,60 @@ def test_a_refused_cache_copy_counts_after_the_template_was_renewed():
     templates.copy_refused(generation, events.append, cache)
     assert templates.cache_off
     assert [e["event"] for e in events].count("clone_cache_off") == 1
+
+
+def test_prewarm_opens_one_page_and_resolves_no_links():
+    made = []
+
+    class Resolver:
+        resolved = failed = bytes = 0
+
+        def __init__(self, upstream, relay_factory=None):
+            made.append(self)
+
+        def fill(self, results):
+            raise AssertionError("a prewarm query resolves no links")
+
+        def close(self):
+            pass
+
+        def hosts(self):
+            return {}
+
+    FakeSession.opened, FakeRelay.by_address = [], {}
+    scripts = [[SERVED, SERVED]]
+    settings = Settings(pages=3, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    s = Scraper(
+        ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
+        settings,
+        session_factory=lambda proxy, **o: FakeSession(proxy, script=scripts.pop(0), **o),
+        relay_factory=FakeRelay,
+        resolver_factory=Resolver,
+        sleep=lambda x: None,
+    )
+    s.prewarm()
+    (session,) = FakeSession.opened
+    assert len(session.searched) == 1 and session.pages_turned == 0
+    assert made == []
+    assert (settings.pages, settings.resolve_links) == (3, True)  # restored
+
+
+def test_a_template_whose_folder_cannot_be_made_is_given_up_not_held(monkeypatch):
+    import google_browser_scraper.scraper as module
+
+    real = tempfile.mkdtemp
+
+    def no_disk(prefix=""):
+        if prefix.startswith("gbs-template-"):
+            raise OSError("no space left on device")
+        return real(prefix=prefix)
+
+    monkeypatch.setattr(module.tempfile, "mkdtemp", no_disk)
+    events = []
+    settings = Settings(clones=2, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    # The identity whose template failed is retired, so "b" runs on a second one.
+    s = scraper([[SERVED], [SERVED]], settings, events=events)
+    records = list(s.run(["a", "b"]))
+    assert [r["search_metadata"]["status"] for r in records] == ["Success", "Success"]
+    assert "template_failed" in [e["event"] for e in events]
+    assert s._templates.claim()  # released, so a later exit can try again

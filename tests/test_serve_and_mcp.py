@@ -74,6 +74,7 @@ class FakeScraper:
 def worker():
     fake = FakeScraper()
     w = Worker(lambda: fake, prewarm=True, log=lambda m: None).start()
+    assert w.ready.wait(5)
     w.fake = fake
     yield w
     w.stop()
@@ -380,3 +381,48 @@ def test_parse_writes_utf8_when_piped(tmp_path):
     assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
     titles = [r["title"] for r in json.loads(done.stdout.decode("utf-8"))["organic_results"]]
     assert "Café кофе" in titles
+
+
+def test_health_says_warming_until_the_prewarm_is_over():
+    release = threading.Event()
+
+    class Slow(FakeScraper):
+        def prewarm(self):
+            assert release.wait(10)
+
+    worker = Worker(lambda: Slow(), prewarm=True, log=lambda m: None).start()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(worker, api_key=None, max_pages=3))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_port}"
+    try:
+        assert get(base + "/health") == (503, {"status": "warming"})
+        release.set()
+        assert worker.ready.wait(5)
+        status, body = get(base + "/health")
+        assert status == 200 and body["status"] == "ok"
+    finally:
+        release.set()
+        server.shutdown()
+        worker.stop()
+
+
+def test_stop_skips_queued_upkeep_and_closes_the_scraper():
+    fake = FakeScraper()
+    worker = Worker(lambda: fake, log=lambda m: None).start()
+    busy, release = threading.Event(), threading.Event()
+
+    def hold(scraper):
+        busy.set()
+        assert release.wait(10)
+
+    worker.submit(hold)
+    assert busy.wait(5)
+    worker.after(lambda s: s.settle())  # queued behind the job in hand
+    stopper = threading.Thread(target=worker.stop)
+    stopper.start()
+    while not worker._stopping.is_set():
+        pass
+    release.set()
+    stopper.join(10)
+    assert fake.settled == 0
+    assert fake.closed
