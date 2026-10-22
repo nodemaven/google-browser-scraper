@@ -8,7 +8,13 @@ import pytest
 
 from google_browser_scraper.browser import Fetched
 from google_browser_scraper.proxy import ProxyTemplate
-from google_browser_scraper.scraper import ExitsRefused, ProxyRefused, Scraper, Settings
+from google_browser_scraper.scraper import (
+    PREWARM_QUERIES,
+    ExitsRefused,
+    ProxyRefused,
+    Scraper,
+    Settings,
+)
 
 SEARCH = "https://www.google.com/search?q=x"
 SERVED = Fetched(SEARCH, 200, pages.results_page())
@@ -356,11 +362,31 @@ def test_search_keeps_the_identity_for_the_next_call():
     assert FakeSession.opened[0].closed
 
 
-def test_prewarm_mints_before_the_first_query():
-    s = scraper([[SERVED]])
+def test_prewarm_warms_and_checks_an_exit_before_the_first_query():
+    s = scraper([[SERVED, SERVED]])
     s.prewarm()
-    assert len(FakeSession.opened[0].visited) == 6
-    assert FakeSession.opened[0].searched == []
+    session = FakeSession.opened[0]
+    assert len(session.visited) == 6
+    assert len(session.searched) == 1 and session.searched[0] in PREWARM_QUERIES
+    s.search("a")
+    assert len(FakeSession.opened) == 1 and session.searched[1] == "a"
+
+
+def test_prewarm_moves_past_refused_exits_until_one_is_served():
+    s = scraper([[REFUSED], [REFUSED], [REFUSED], [SERVED, SERVED]])
+    s.prewarm()
+    *refused, served = FakeSession.opened
+    assert len(refused) == 3 and all(x.closed for x in refused)
+    assert not served.closed and len(served.searched) == 1
+    assert s.search("a")[0]["search_metadata"]["status"] == "Success"
+    assert len(FakeSession.opened) == 4
+
+
+def test_prewarm_gives_up_when_the_breaker_trips():
+    s = scraper([[REFUSED]] * 6)
+    with pytest.raises(ExitsRefused):
+        s.prewarm()
+    assert len(FakeSession.opened) == 6
 
 
 def test_relay_is_required_for_engines_that_cannot_authenticate():
@@ -918,6 +944,41 @@ def test_the_browser_restarts_on_its_own_exit_every_n_searches_and_settles():
     assert FakeSession.opened[0].restarts == [2, 4]
     assert [e["queries"] for e in events if e["event"] == "restart"] == [2, 4]
     assert sum(40 <= x <= 60 for x in slept) == 2
+
+
+def test_search_can_leave_the_restart_and_the_template_copy_for_settle():
+    events = []
+    settings = clone_settings(restart_every=1, max_queries_per_exit=10)
+    s = scraper([[SERVED, SERVED]], settings, events=events)
+    s.search("a", settle=False)
+    seed = FakeSession.opened[0]
+    assert seed.restarts == [] and seed.suspended == 0  # the answer comes first
+    assert "template" not in [e["event"] for e in events]
+    s.settle()
+    assert seed.restarts == [1]
+    assert [e["event"] for e in events].count("template") == 1  # left by the restart
+    s.settle()  # nothing left to do
+    assert seed.restarts == [1]
+    s.close()
+
+
+def test_the_next_search_first_settles_what_the_last_one_left():
+    events = []
+    s = scraper([[SERVED, SERVED]], clone_settings(max_queries_per_exit=10), events=events)
+    s.search("a", settle=False)
+    s.search("b", settle=False)
+    names = [(e["event"], e.get("q")) for e in events]
+    assert names.index(("template", None)) < names.index(("query", "b"))
+    s.close()
+
+
+def test_search_does_its_upkeep_inline_by_default():
+    events = []
+    s = scraper([[SERVED]], clone_settings(max_queries_per_exit=10), events=events)
+    s.search("a")
+    assert FakeSession.opened[0].suspended == 1
+    assert [e["event"] for e in events].count("template") == 1
+    s.close()
 
 
 def test_restart_every_zero_never_restarts_and_a_capped_exit_is_not_restarted():

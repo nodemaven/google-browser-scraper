@@ -85,6 +85,16 @@ class Worker:
     def call(self, job: Callable[[Scraper], Any], timeout: float = REQUEST_TIMEOUT_S) -> Any:
         return self.submit(job).result(timeout=timeout)
 
+    def after(self, job: Callable[[Scraper], Any]) -> None:
+        """Queue a job nobody waits for; a failure is logged, not lost."""
+
+        def report(future: Future) -> None:
+            if not future.cancelled() and future.exception() is not None:
+                exc = future.exception()
+                self._log(f"background job failed: {type(exc).__name__}: {exc}")
+
+        self.submit(job).add_done_callback(report)
+
     def stop(self) -> None:
         if self._thread.is_alive():
             self._jobs.put(None)
@@ -104,7 +114,7 @@ class Worker:
             if self._prewarm:
                 try:
                     self.scraper.prewarm()
-                    self._log("prewarm: identity ready")
+                    self._log("prewarm: an exit is served")
                 except Exception as exc:
                     self._log(f"prewarm failed: {type(exc).__name__}: {exc}")
                     self.scraper.reset_breaker()
@@ -147,13 +157,17 @@ class Worker:
 
 
 def search_job(query: str, pages: int) -> Callable[[Scraper], list[dict[str, Any]]]:
-    """A job that runs one query for `pages` pages and leaves the identity open."""
+    """A job that runs one query for `pages` pages and leaves the identity open.
+
+    The upkeep the query leaves (a template copy, a restart) is not done here:
+    queue `settle_job` once the answer is out, so the caller does not wait for it.
+    """
 
     def job(scraper: Scraper) -> list[dict[str, Any]]:
         saved = scraper.settings.pages
         scraper.settings.pages = pages
         try:
-            return scraper.search(query)
+            return scraper.search(query, settle=False)
         except ExitsRefused:
             # Report it to this caller, but let the next request try again.
             scraper.reset_breaker()
@@ -162,6 +176,10 @@ def search_job(query: str, pages: int) -> Callable[[Scraper], list[dict[str, Any
             scraper.settings.pages = saved
 
     return job
+
+
+def settle_job(scraper: Scraper) -> None:
+    scraper.settle()
 
 
 def make_handler(worker: Worker, *, api_key: str | None, max_pages: int):
@@ -193,7 +211,8 @@ def make_handler(worker: Worker, *, api_key: str | None, max_pages: int):
                 return self._send(503, {"error": str(exc)})
             except Exception as exc:
                 return self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
-            return self._send(200, records[0] if pages == 1 and len(records) == 1 else records)
+            self._send(200, records[0] if pages == 1 and len(records) == 1 else records)
+            worker.after(settle_job)
 
         def _authorized(self, params: dict[str, str]) -> bool:
             given = params.get("api_key") or ""

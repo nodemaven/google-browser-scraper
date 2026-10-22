@@ -14,7 +14,7 @@ from google_browser_scraper.scraper import Settings  # noqa: E402
 class EchoScraper:
     settings = Settings()
 
-    def search(self, query):
+    def search(self, query, settle=True):
         return [
             {
                 "search_metadata": {"status": "Success"},
@@ -24,10 +24,16 @@ class EchoScraper:
             }
         ]
 
+    def settle(self):
+        pass
+
 
 class InlineWorker:
     def call(self, job, timeout=None):
         return job(EchoScraper())
+
+    def after(self, job):
+        job(EchoScraper())
 
 
 McpServer(InlineWorker()).serve()

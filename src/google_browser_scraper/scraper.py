@@ -54,6 +54,9 @@ DIRECT_MODES = ("all", "follow-ups", "none")
 #: Records held back while their links resolve in the background; past this
 #: the run waits for the oldest instead of opening more pages ahead of it.
 MAX_HELD = 3
+#: What `prewarm()` searches for to find an exit Google serves: common queries
+#: that look like anyone's first search of the day.
+PREWARM_QUERIES = ("weather", "news", "translate", "time", "maps")
 
 
 _CREDENTIALS = re.compile(r"//[^/\s:@]+:[^@\s]+@")
@@ -653,6 +656,8 @@ class Scraper:
         self._rng = rng or random.Random()
         self._emit = on_event or (lambda event: None)
         self._identity: Identity | None = None
+        #: Upkeep a `search(settle=False)` left for `settle()`: (identity, more).
+        self._unsettled: tuple[Identity, bool] | None = None
         self._spares: deque[Future] = deque()
         self._warmer: ThreadPoolExecutor | None = None
         self._cancel = threading.Event()
@@ -708,18 +713,43 @@ class Scraper:
             yield from self._query(query, more=following is not None)
             query = following
 
-    def search(self, query: str) -> list[dict[str, Any]]:
-        """One query, keeping the identity open for the next call (serve, MCP)."""
-        return [self._finish(r) for r in self._query(query.strip())]
+    def search(self, query: str, settle: bool = True) -> list[dict[str, Any]]:
+        """One query, keeping the identity open for the next call (serve, MCP).
+
+        With `settle=False` the upkeep a served query leaves behind - a template
+        copy, a scheduled restart, retiring a capped exit - waits for `settle()`,
+        so a server can answer first. A template copy closes and reopens the
+        browser, which can take longer than the search itself.
+        """
+        self.settle()
+        return [self._finish(r) for r in self._query(query.strip(), settle=settle)]
+
+    def settle(self) -> None:
+        """Run the upkeep the last `search(settle=False)` left, if any."""
+        pending, self._unsettled = self._unsettled, None
+        if pending is not None:
+            self._upkeep(*pending)
 
     def prewarm(self) -> None:
-        """Mint and warm an identity now, so the first query does not pay for it."""
-        self._current_identity()
+        """Find an exit Google serves before the first real query.
+
+        A warm-up alone does not tell: a third or more of fresh exits are refused
+        on their first search. So one common query runs on fresh exits until a
+        results page comes back, and a server's first caller does not pay for a
+        refused exit and a second warm-up. Raises `ExitsRefused` when the
+        breaker trips first.
+        """
+        query = self._rng.choice(PREWARM_QUERIES)
+        while True:
+            records = [self._finish(r) for r in self._query(query)]
+            if records and records[0]["search_metadata"]["status"] == "Success":
+                return
 
     def reset_breaker(self) -> None:
         self._breaker.reset()
 
     def close(self) -> None:
+        self._unsettled = None
         if self._identity is not None:
             self._retire("run finished")
         self._discard_spares()
@@ -743,7 +773,9 @@ class Scraper:
 
     # -- one query -----------------------------------------------------------
 
-    def _query(self, query: str, more: bool = True) -> Iterator[dict[str, Any]]:
+    def _query(
+        self, query: str, more: bool = True, settle: bool = True
+    ) -> Iterator[dict[str, Any]]:
         s = self.settings
         last_verdict: Verdict | None = None
         last_error: str | None = None
@@ -776,21 +808,10 @@ class Scraper:
                     self._top_up()
                 yield self._served(query, 1, fetched, verdict, identity, started, before, saved)
                 yield from self._more_pages(query, identity)
-                if s.stop_after_read and self._identity is identity:
-                    self._leave_page(identity)
-                capped = identity.queries >= s.max_queries_per_exit
-                if (
-                    s.restart_every
-                    and more
-                    and not capped
-                    and self._identity is identity
-                    and identity.queries - identity.browser_start >= s.restart_every
-                ):
-                    self._restart(identity)
-                if self._identity is identity and more and self._wants_template(identity):
-                    self._take_template(identity, reopen=not capped)
-                if self._identity is identity and capped:
-                    self._retire("query cap reached")
+                if settle:
+                    self._upkeep(identity, more)
+                else:
+                    self._unsettled = (identity, more)
                 return
             if identity.clone and identity.queries == 1 and verdict.refused:
                 # Copies are refused together with the profile they came from.
@@ -841,6 +862,25 @@ class Scraper:
                 return identity.session.search(query, direct=True)
             identity.session.visit(browser.HOME_URL, 0)
             return identity.session.search(query)
+
+    def _upkeep(self, identity: Identity, more: bool) -> None:
+        """What a served query leaves to do once its pages are out."""
+        s = self.settings
+        if s.stop_after_read and self._identity is identity:
+            self._leave_page(identity)
+        capped = identity.queries >= s.max_queries_per_exit
+        if (
+            s.restart_every
+            and more
+            and not capped
+            and self._identity is identity
+            and identity.queries - identity.browser_start >= s.restart_every
+        ):
+            self._restart(identity)
+        if self._identity is identity and more and self._wants_template(identity):
+            self._take_template(identity, reopen=not capped)
+        if self._identity is identity and capped:
+            self._retire("query cap reached")
 
     def _more_pages(self, query: str, identity: Identity) -> Iterator[dict[str, Any]]:
         for page in range(2, self.settings.pages + 1):
