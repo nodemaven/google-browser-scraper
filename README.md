@@ -4,7 +4,7 @@
 
 <h1>google-browser-scraper</h1>
 
-<p><b>Self-hosted Google search scraper with a real Chrome browser and your own residential proxy.</b></p>
+<p><b>Self-hosted SERP API alternative: Google search results from a real Chrome browser and your own residential proxy.</b></p>
 
 [![pypi](https://img.shields.io/pypi/v/google-browser-scraper?style=flat-square)](https://pypi.org/project/google-browser-scraper/)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://pypi.org/project/google-browser-scraper/)
