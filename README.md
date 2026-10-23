@@ -262,6 +262,7 @@ The defaults come from measurements in
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |
 | `--no-clone-cache` | | Copies carry cookies only, not the browser cache |
+| `--warmup` | `L3` | Pages a fresh exit opens before its first query: `L3`, `light` (without Google Trends: much less traffic, served on the first query less often), `L2`, `L1`, `off` |
 | `--spare N` | 0 | Exits warmed in the background so a retired one is replaced at once; each costs a warm-up |
 | `--direct` | `all` | Open results pages directly: `all`, `follow-ups` (all but an exit's first query), `none` |
 | `--input` | `type` | How a query goes into the search box: `type`, `insert`, `words` |

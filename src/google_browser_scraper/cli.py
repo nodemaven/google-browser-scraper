@@ -140,7 +140,8 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         "--warmup",
         choices=list(warmup.LADDERS),
         default=warmup.DEFAULT,
-        help=f"pages opened before the first query on an exit (default {warmup.DEFAULT})",
+        help=f"pages opened before the first query on an exit (default {warmup.DEFAULT}; "
+        "light skips Google Trends for much less traffic per fresh exit)",
     )
     p.add_argument(
         "--max-per-exit",
