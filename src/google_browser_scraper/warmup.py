@@ -24,6 +24,9 @@ LADDERS: dict[str, tuple[str, ...]] = {
         "https://trends.google.com/trends/?hl=en",
     ),
 }
+#: The default ladder without Google Trends, its heaviest page. A fresh exit costs
+#: about a fifth of the warm-up traffic and is served on its first query less often.
+LADDERS["light"] = tuple(u for u in LADDERS["L3"] if "trends.google.com" not in u)
 DEFAULT = "L3"
 
 #: Seconds on each warm-up page, drawn uniformly. A fresh exit warmed with a few
