@@ -45,7 +45,7 @@ such, never as "no results".
 ## Features
 
 - **Real browser scraping:** real Chrome via Patchright, with a warm-up before every new identity
-- **Bring your own proxy:** any residential proxy with sticky sessions, built-in [NodeMaven](https://go.nodemaven.com/ghgooglesearch) support
+- **Bring your own proxy:** any residential proxy with sticky sessions, built-in [NodeMaven](https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=features) support
 - **SERP API alternative:** JSON with `organic_results`, `ads`, `related_questions`, `related_searches`, `pagination`
 - **Honest failures:** captchas and blocks come back labeled, not as empty results
 - **Cost tracking:** bytes per page and cost per 1000 pages in every run summary
@@ -82,7 +82,7 @@ the warm-up costs noticeably more traffic than a search. Later queries on the
 same exit take seconds. A summary of pages served and traffic used, with the
 hosts that took most of it, is printed at the end of every run.
 
-With [NodeMaven](https://go.nodemaven.com/ghgooglesearch) residential proxies, the
+With [NodeMaven](https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=proxy_setup) residential proxies, the
 session id is handled for you and the credentials come from the environment:
 
 ```bash
