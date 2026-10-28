@@ -91,6 +91,8 @@ export NODEMAVEN_LOGIN=... NODEMAVEN_PASSWORD=...
 google-browser-scraper search -f queries.txt --nodemaven --country us -o results.jsonl
 ```
 
+No NodeMaven account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=signup_promo) and enter the code **GOOGLENM** for 2 GB of free traffic, once per account.
+
 To cap a run's traffic, `--nodemaven-demo` creates a sub-user with a traffic limit
 from your dashboard API key, shares it across workers, and deletes it when the run
 ends (`--keep-subuser` keeps it). The account needs sub-users enabled. A fresh
