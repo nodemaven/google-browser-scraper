@@ -11,6 +11,7 @@
 [![tests](https://img.shields.io/github/actions/workflow/status/nodemaven/google-browser-scraper/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/nodemaven/google-browser-scraper/actions/workflows/ci.yml)
 [![license](https://img.shields.io/pypi/l/google-browser-scraper?style=flat-square)](https://opensource.org/licenses/MIT)
 [![docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/nodemaven/google-browser-scraper/pkgs/container/google-browser-scraper)
+[![2 GB free with code GOOGLENM](https://img.shields.io/badge/%F0%9F%8E%81%202%20GB%20free-code%20GOOGLENM-1153FC?style=flat-square)](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=promo_badge)
 
 <a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="Google Browser Scraper on DevHunt" height="44"></a>
 
@@ -91,7 +92,8 @@ export NODEMAVEN_LOGIN=... NODEMAVEN_PASSWORD=...
 google-browser-scraper search -f queries.txt --nodemaven --country us -o results.jsonl
 ```
 
-No NodeMaven account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=signup_promo) and enter the code **GOOGLENM** for 2 GB of free traffic, once per account.
+> [!TIP]
+> 🎁 **2 GB of free traffic.** No NodeMaven account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=signup_promo) and enter the code **GOOGLENM**. Once per account.
 
 To cap a run's traffic, `--nodemaven-demo` creates a sub-user with a traffic limit
 from your dashboard API key, shares it across workers, and deletes it when the run
