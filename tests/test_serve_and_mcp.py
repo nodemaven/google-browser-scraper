@@ -426,3 +426,14 @@ def test_stop_skips_queued_upkeep_and_closes_the_scraper():
     stopper.join(10)
     assert fake.settled == 0
     assert fake.closed
+
+
+def test_compact_carries_the_first_ai_overview():
+    from google_browser_scraper.mcp import compact
+
+    records = [
+        {"organic_results": [], "ai_overview": {"text": "Page one answer."}},
+        {"organic_results": [], "ai_overview": {"text": "Page two answer."}},
+    ]
+    assert compact(records)["ai_overview"] == "Page one answer."
+    assert "ai_overview" not in compact([{"organic_results": [], "ai_overview": {}}])

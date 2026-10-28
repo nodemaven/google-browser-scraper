@@ -71,6 +71,9 @@ def compact(records: list[dict[str, Any]]) -> dict[str, Any]:
                     if r.get(k) is not None
                 }
             )
+        overview = (record.get("ai_overview") or {}).get("text")
+        if overview and "ai_overview" not in out:
+            out["ai_overview"] = overview
         out["related_questions"] += [q["question"] for q in record.get("related_questions", [])]
         out["related_searches"] += [s["query"] for s in record.get("related_searches", [])]
     if errors:

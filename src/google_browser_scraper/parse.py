@@ -2,6 +2,9 @@
 
 Field names follow the usual SERP API JSON.
 
+`ai_overview` is the AI Overview's text when the page carries one; its source
+links are loaded by script after the page and are not part of it.
+
 Google wraps every result link in an encrypted `/goto?url=...` redirect. Some
 pages still pair each token with its destination in their inline JSON, so the
 parser tries that first; a link it cannot find keeps its `redirect_link`, and
@@ -10,6 +13,7 @@ parser tries that first; a link it cannot find keeps its `redirect_link`, and
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from typing import Any
@@ -37,6 +41,7 @@ def parse_serp(page: str, *, base_url: str = GOOGLE) -> dict[str, Any]:
         "related_questions": _related_questions(root),
         "related_searches": _related_searches(root, base_url),
         "pagination": _pagination(root, base_url),
+        "ai_overview": _ai_overview(root),
     }
 
 
@@ -167,6 +172,71 @@ def _ads(root, base_url: str) -> list[dict[str, Any]]:
             ad["source"] = displayed.get("data-dtld")
         ads.append(ad)
     return ads
+
+
+# Interface text inside the AI Overview block, not part of the answer.
+_AI_CHROME = (
+    "AI responses may include mistakes.",
+    "Learn more",
+    "Show more",
+    "Show all",
+    "Dive deeper in AI Mode",
+    "Thank you",
+    "Your feedback helps Google improve.",
+)
+_AI_MIN_TEXT = 200
+
+
+def _ai_overview(root) -> dict[str, Any]:
+    """The AI Overview's text, or {} when the page has none.
+
+    Found by its visible "AI Overview" heading rather than by class names, which
+    Google renames: the block is the nearest ancestor of the heading that holds
+    real text. Source links load later by script and are not in the page.
+    """
+    heading = next(
+        (
+            el
+            for el in root.iter()
+            if isinstance(el.tag, str)
+            and el.tag not in ("script", "style")
+            and (el.text or "").strip() == "AI Overview"
+        ),
+        None,
+    )
+    if heading is None:
+        return {}
+    block = heading
+    for _ in range(10):
+        block = block.getparent()
+        # An ancestor holding a result link (an anchor around a heading) is past
+        # the block: stopping there keeps an empty overview from borrowing the
+        # results' text.
+        if block is None or block.xpath(".//a[.//h3]"):
+            return {}
+        if len(_visible_text(block)) >= _AI_MIN_TEXT:
+            break
+    else:
+        return {}
+    text = _visible_text(block, skip_label=True)
+    text = text.removeprefix("AI Overview").strip()
+    for chrome in _AI_CHROME:
+        text = text.replace(chrome, " ")
+    text = " ".join(text.split())
+    return {"text": text} if len(text) >= _AI_MIN_TEXT else {}
+
+
+def _visible_text(el, *, skip_label: bool = False) -> str:
+    """Text of an element without scripts, styles and (optionally) the hidden
+    "AI Mode reply for ..." label Google puts before the answer."""
+    el = copy.deepcopy(el)
+    for node in el.xpath(".//script|.//style"):
+        node.drop_tree()
+    if skip_label:
+        for node in el.xpath(".//*[starts-with(normalize-space(text()), 'AI Mode reply for')]"):
+            node.drop_tree()
+    # Text nodes joined with a space: block elements carry no separator of their own.
+    return " ".join(" ".join(el.itertext()).split())
 
 
 def _related_questions(root) -> list[dict[str, str]]:

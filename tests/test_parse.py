@@ -125,3 +125,19 @@ def test_fallback_does_not_cross_into_the_next_entry():
         '[null,1,[null,null,5,null,"n",null,"/goto?url\u003dNEXT"],["https://next.example/"]]'
     )
     assert resolve_goto(page, "TOK") is None
+
+
+def test_ai_overview_text_without_heading_label_interface_or_script():
+    page = pages.results_page(ai_overview=pages.ai_overview_block())
+    parsed = parse_serp(page)
+    assert parsed["ai_overview"] == {"text": pages.AI_ANSWER}
+    assert len(parsed["organic_results"]) == 3
+
+
+def test_no_ai_overview_is_an_empty_block():
+    assert parse_serp(pages.results_page())["ai_overview"] == {}
+
+
+def test_an_ai_overview_heading_with_no_answer_is_not_a_block():
+    page = pages.results_page(ai_overview=pages.ai_overview_block("Loading"))
+    assert parse_serp(page)["ai_overview"] == {}
