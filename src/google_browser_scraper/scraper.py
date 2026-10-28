@@ -204,6 +204,9 @@ class Settings:
     browser_args: tuple[str, ...] = ()
     use_relay: bool = True
     hl: str = "en"
+    #: Country the results are for, as Google's `gl` (e.g. "us"); unset, Google
+    #: picks it from the exit. Applies to results pages opened directly.
+    gl: str | None = None
     #: Directory to keep every page's HTML in, gzipped, for debugging a parse.
     #: The pages carry the exit's location, so keep them out of anything public.
     save_html: str | None = None
@@ -841,6 +844,7 @@ class Scraper:
             url=None,
             elapsed=0.0,
             hl=s.hl,
+            gl=s.gl,
             exit_info={"session": None},
             error=last_error or f"refused on {s.max_exits_per_query} exits: {reason}",
         )
@@ -957,6 +961,7 @@ class Scraper:
             verdict=verdict,
             url=fetched.url,
             hl=self.settings.hl,
+            gl=self.settings.gl,
             elapsed=time.monotonic() - started,
             exit_info=identity.info(self.settings.warmup, page_bytes),
             parsed=parsed,
@@ -993,6 +998,7 @@ class Scraper:
             url=None,
             elapsed=0.0,
             hl=self.settings.hl,
+            gl=self.settings.gl,
             exit_info=identity.info(self.settings.warmup),
             error=error,
         )
@@ -1063,6 +1069,8 @@ class Scraper:
             rng=self._rng,
             profile_dir=profile,
             input_mode=s.input,
+            hl=s.hl,
+            gl=s.gl,
         )
         try:
             session.__enter__()
@@ -1112,6 +1120,8 @@ class Scraper:
                 browser_args=s.browser_args,
                 rng=self._rng,
                 input_mode=s.input,
+                hl=s.hl,
+                gl=s.gl,
             )
 
         try:

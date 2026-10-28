@@ -239,6 +239,11 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="hand the proxy to the browser directly, without the traffic count",
     )
+    p.add_argument("--hl", default="en", help="interface language of the results, e.g. de")
+    p.add_argument(
+        "--gl",
+        help="country the results are for, e.g. de; unset, Google picks it from the exit",
+    )
     p.add_argument(
         "--save-html",
         type=Path,
@@ -310,6 +315,8 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
         use_relay=not args.no_relay,
         save_html=_html_dir(args.save_html, worker),
         resolve_links=not args.no_resolve_links,
+        hl=args.hl,
+        gl=args.gl,
     )
     log = None
     if args.verbose:

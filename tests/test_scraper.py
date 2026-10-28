@@ -6,7 +6,7 @@ import tempfile
 import pages
 import pytest
 
-from google_browser_scraper.browser import Fetched
+from google_browser_scraper.browser import Fetched, results_url
 from google_browser_scraper.proxy import ProxyTemplate
 from google_browser_scraper.scraper import (
     PREWARM_QUERIES,
@@ -1120,3 +1120,26 @@ def test_a_template_whose_folder_cannot_be_made_is_given_up_not_held(monkeypatch
     assert [r["search_metadata"]["status"] for r in records] == ["Success", "Success"]
     assert "template_failed" in [e["event"] for e in events]
     assert s._templates.claim()  # released, so a later exit can try again
+
+
+def test_hl_and_gl_reach_the_browser_and_the_record():
+    settings = Settings(hl="de", gl="at", gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    records = list(scraper([[SERVED]], settings).run(["a"]))
+    options = FakeSession.opened[0].options
+    assert (options["hl"], options["gl"]) == ("de", "at")
+    assert records[0]["search_parameters"]["hl"] == "de"
+    assert records[0]["search_parameters"]["gl"] == "at"
+
+
+def test_gl_is_left_out_when_unset():
+    records = list(
+        scraper([[SERVED]], Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0))).run(["a"])
+    )
+    assert "gl" not in records[0]["search_parameters"]
+
+
+def test_results_url_carries_language_and_country():
+    assert results_url("pizza dough") == "https://www.google.com/search?q=pizza+dough&hl=en"
+    assert results_url("pizza", hl="de", gl="at") == (
+        "https://www.google.com/search?q=pizza&hl=de&gl=at"
+    )

@@ -19,9 +19,20 @@ import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field, replace
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode
 
 HOME_URL = "https://www.google.com/?hl=en"
+
+
+def results_url(query: str, hl: str = "en", gl: str | None = None) -> str:
+    """Google's results page for `query`: `hl` is the interface language, `gl`
+    the country the results are for (Google picks one from the exit if unset)."""
+    params = {"q": query, "hl": hl}
+    if gl:
+        params["gl"] = gl
+    return "https://www.google.com/search?" + urlencode(params)
+
+
 #: How a query gets into the search box: key by key, all at once, or one word
 #: at a time.
 INPUT_MODES = ("type", "insert", "words")
@@ -77,10 +88,14 @@ class BrowserSession:
         rng: random.Random | None = None,
         profile_dir: str | None = None,
         input_mode: str = "type",
+        hl: str = "en",
+        gl: str | None = None,
     ) -> None:
         if input_mode not in INPUT_MODES:
             raise ValueError(f"input mode must be one of {', '.join(INPUT_MODES)}")
         self._input = input_mode
+        self._hl = hl
+        self._gl = gl
         if any(a.startswith(("--disable-features", "--enable-features")) for a in browser_args):
             raise ValueError(
                 "--disable-features/--enable-features would replace the browser's "
@@ -215,10 +230,7 @@ class BrowserSession:
         return replace(fetched, timings={**timings, **fetched.timings})
 
     def _search_direct(self, query: str) -> Fetched:
-        home = urlsplit(HOME_URL)
-        url = urlunsplit(
-            (home.scheme, home.netloc, "/search", urlencode({"q": query, "hl": "en"}), "")
-        )
+        url = results_url(query, self._hl, self._gl)
         mark = time.monotonic()
         response = self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
         # A fresh exit can be shown the consent wall instead of results; clear
