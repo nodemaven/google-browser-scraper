@@ -19,7 +19,7 @@ import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field, replace
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 HOME_URL = "https://www.google.com/?hl=en"
 GOOGLE_SEARCH = "https://www.google.com/search"
@@ -28,13 +28,15 @@ GOOGLE_SEARCH = "https://www.google.com/search"
 def results_url(query: str, hl: str = "en", gl: str | None = None, start: int = 0) -> str:
     """Google's results page for `query`: `hl` is the interface language, `gl`
     the country the results are for (Google picks one from the exit if unset),
-    `start` the first result's offset (10 for the second page)."""
+    `start` the first result's offset (10 for the second page). On the host of
+    `HOME_URL`, so a test can point both at a local server."""
     params = {"q": query, "hl": hl}
     if gl:
         params["gl"] = gl
     if start:
         params["start"] = str(start)
-    return "https://www.google.com/search?" + urlencode(params)
+    home = urlsplit(HOME_URL)
+    return urlunsplit((home.scheme, home.netloc, "/search", urlencode(params), ""))
 
 
 #: How a query gets into the search box: key by key, all at once, or one word
