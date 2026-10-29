@@ -33,7 +33,8 @@ def _stem(word: str) -> str:
 
 
 def _words(query: str) -> list[str]:
-    found = re.findall(r"[a-z0-9]+", query.lower())
+    # Letters of any script, so a query in Cyrillic or with accents is judged too.
+    found = re.findall(r"[^\W_]+", query.lower())
     return [_stem(w) for w in found if w not in STOP_WORDS and len(w) > 2]
 
 

@@ -170,8 +170,11 @@ def test_a_page_without_a_map_pack_has_no_local_results():
 def test_place_lines_split_into_address_phone_and_hours():
     from google_browser_scraper.parse import _place_facts
 
-    lines = ["JFK International Airport, NY · (718) 656-1890", "Open · Closes 1 AM",
-             "Rentals available from US$ 44/day"]
+    lines = [
+        "JFK International Airport, NY · (718) 656-1890",
+        "Open · Closes 1 AM",
+        "Rentals available from US$ 44/day",
+    ]
     assert _place_facts(lines) == {
         "address": "JFK International Airport, NY",
         "phone": "(718) 656-1890",
@@ -179,3 +182,10 @@ def test_place_lines_split_into_address_phone_and_hours():
     }
     assert _place_facts(["Sunset Blvd 12"]) == {"address": "Sunset Blvd 12"}
     assert _place_facts(["Pasadena, MD", "Sat: 7 AM–12 PM"])["hours"] == "Sat: 7 AM–12 PM"
+
+
+def test_ai_overview_keeps_label_words_that_are_part_of_the_answer():
+    answer = pages.AI_ANSWER + " Learn more about pacing in the second week."
+    page = pages.results_page(ai_overview=pages.ai_overview_block(answer))
+    text = parse_serp(page)["ai_overview"]["text"]
+    assert text.endswith("Learn more about pacing in the second week.")

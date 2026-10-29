@@ -137,6 +137,10 @@ def impersonate_for(request: dict | None) -> str:
     """The Chrome version curl_cffi should present for the browser that sent
     `request`: the newest it can impersonate that is not newer than the browser.
 
+    It can be behind the user agent: curl_cffi adds a Chrome version some time
+    after Chrome ships it. A TLS fingerprint a version or two older than the
+    headers is accepted here; a wider gap is what an update of curl_cffi is for.
+
     Read from the request's user agent, so that a new patchright or curl_cffi
     moves it without a code change.
     """
@@ -292,7 +296,7 @@ class HybridSession:
         except Exception as exc:
             self._emit({"event": "hybrid_headers_failed", "error": type(exc).__name__})
         finally:
-            # It holds cookies; nothing of it is kept but the parsed template.
+            # Nothing of it is kept but the parsed template.
             try:
                 os.remove(path)
             except OSError:
@@ -328,9 +332,7 @@ class HybridSession:
             fetched = self._fetch(query, 1)
             if fetched is not None:
                 return fetched
-        return self._browser(
-            lambda: self.inner.search(query, direct=direct, **self._locale), query
-        )
+        return self._browser(lambda: self.inner.search(query, direct=direct, **self._locale), query)
 
     def next_page(self) -> Fetched | None:
         if self._last_source == "http" and self._last is not None and self._usable():
@@ -391,7 +393,9 @@ class HybridSession:
         self._last_source = "http"
         self._last = (query, page, html)
         return Fetched(
-            url=str(response.url), status=response.status_code, html=html,
+            url=str(response.url),
+            status=response.status_code,
+            html=html,
             timings={"http": load},
         )
 
@@ -410,8 +414,14 @@ class HybridSession:
     def _end_series(self, reason: str, error: str | None = None) -> None:
         """The HTTP side stopped; the browser takes the query."""
         served, self._series = self._series, 0
-        self._emit({"event": "hybrid_series", "pages": served, "stop": reason,
-                    **({"error": error} if error else {})})
+        self._emit(
+            {
+                "event": "hybrid_series",
+                "pages": served,
+                "stop": reason,
+                **({"error": error} if error else {}),
+            }
+        )
         if served >= GOOD_SERIES:
             self._headers.worked()
         # A refusal is about the exit, which the scraper retires; these three
@@ -422,4 +432,3 @@ class HybridSession:
             self._off = True
             run = self._headers.stepped_back()
             self._emit({"event": "hybrid_fallback", "run": run, "reason": reason})
-

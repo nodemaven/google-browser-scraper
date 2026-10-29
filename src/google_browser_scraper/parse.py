@@ -225,9 +225,6 @@ def _ai_overview(root) -> dict[str, Any]:
         return {}
     text = _visible_text(block, skip_label=True)
     text = text.removeprefix("AI Overview").strip()
-    for chrome in _AI_CHROME:
-        text = text.replace(chrome, " ")
-    text = " ".join(text.split())
     return {"text": text} if len(text) >= _AI_MIN_TEXT else {}
 
 
@@ -329,6 +326,16 @@ def _local_results(root) -> list[dict[str, Any]]:
     return places
 
 
+def _only_chrome(el) -> bool:
+    """Whether an element's text is nothing but the AI Overview's own labels."""
+    rest = " ".join(el.text_content().split())
+    if not rest:
+        return False
+    for chrome in _AI_CHROME:
+        rest = rest.replace(chrome, "")
+    return not rest.strip(" .")
+
+
 def _visible_text(el, *, skip_label: bool = False) -> str:
     """Text of an element without scripts, styles and (optionally) the hidden
     "AI Mode reply for ..." label Google puts before the answer."""
@@ -338,6 +345,12 @@ def _visible_text(el, *, skip_label: bool = False) -> str:
     if skip_label:
         for node in el.xpath(".//*[starts-with(normalize-space(text()), 'AI Mode reply for')]"):
             node.drop_tree()
+        # The block's own buttons and notices, dropped only where an element
+        # holds nothing else: the same words inside the answer stay.
+        labels = [node for node in el.iter() if isinstance(node.tag, str) and _only_chrome(node)]
+        for node in labels:
+            if node.getparent() is not None:
+                node.drop_tree()
     # Text nodes joined with a space: block elements carry no separator of their own.
     return " ".join(" ".join(el.itertext()).split())
 

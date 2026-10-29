@@ -134,7 +134,9 @@ class BrowserSession:
     def launch_args(self) -> list[str] | None:
         args = list(self._args)
         if self.netlog:
-            args += [f"--log-net-log={self.netlog}", "--net-log-capture-mode=IncludeSensitive"]
+            # The default capture mode keeps every request header in order and
+            # strips cookie values, which the hybrid takes from the browser anyway.
+            args += [f"--log-net-log={self.netlog}"]
         return args or None
 
     @property

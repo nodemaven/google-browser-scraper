@@ -59,8 +59,14 @@ def _place(name: str, stars: str, count: str, facts: str, address: str, quote: s
 def local_pack_block() -> str:
     return (
         '<div class="Qq3Lb"><div role="heading">Places</div>'
-        + _place("Lane Swim Center", "4.6", "1.7K", " · $$ · Swimming pool", "12 Main St",
-                 "Clean lanes and friendly staff.")
+        + _place(
+            "Lane Swim Center",
+            "4.6",
+            "1.7K",
+            " · $$ · Swimming pool",
+            "12 Main St",
+            "Clean lanes and friendly staff.",
+        )
         + _place("City Aquatics", "4.1", "44", " · Gym", "Open ⋅ Closes 9 PM")
         + "</div>"
     )

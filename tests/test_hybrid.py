@@ -65,6 +65,7 @@ class Inner:
         self.netlog = None
         self.netlogs = []
         self.cookie = "SID=browser"
+        self.cookie_after_search = None
 
     def __enter__(self):
         self.netlogs.append(self.netlog)
@@ -79,8 +80,10 @@ class Inner:
     def close(self):
         pass
 
-    def search(self, query, direct=False):
+    def search(self, query, direct=False, **locale):
         self.searched.append(query)
+        # Passing Google's check leaves the browser with new cookies.
+        self.cookie = self.cookie_after_search or self.cookie
         return self.script.pop(0) if self.script else SERVED
 
     def open_results(self, query, start=0):
@@ -126,13 +129,32 @@ def test_read_netlog_finds_the_search_request_and_its_response(tmp_path):
     log = {
         "constants": {"logEventTypes": types},
         "events": [
-            {"type": 1, "source": {"id": 7}, "params": {"stream_id": 1, "headers": [
-                ":authority: www.google.com", ":path: /search?q=a",
-                "user-agent: UA", "cookie: S=1"]}},
-            {"type": 1, "source": {"id": 7}, "params": {"stream_id": 3, "headers": [
-                ":authority: www.google.com", ":path: /complete/search?q=a"]}},
-            {"type": 2, "source": {"id": 7}, "params": {"stream_id": 1, "headers": [
-                ":status: 200", "set-cookie: N=2"]}},
+            {
+                "type": 1,
+                "source": {"id": 7},
+                "params": {
+                    "stream_id": 1,
+                    "headers": [
+                        ":authority: www.google.com",
+                        ":path: /search?q=a",
+                        "user-agent: UA",
+                        "cookie: S=1",
+                    ],
+                },
+            },
+            {
+                "type": 1,
+                "source": {"id": 7},
+                "params": {
+                    "stream_id": 3,
+                    "headers": [":authority: www.google.com", ":path: /complete/search?q=a"],
+                },
+            },
+            {
+                "type": 2,
+                "source": {"id": 7},
+                "params": {"stream_id": 1, "headers": [":status: 200", "set-cookie: N=2"]},
+            },
         ],
     }
     path = tmp_path / "netlog.json"
@@ -171,18 +193,19 @@ def test_served_pages_come_over_http_with_the_browsers_cookies():
 
 
 def test_a_check_goes_to_the_browser_with_the_http_cookies_and_back():
-    client = Client([
-        Response(SERVED.html, set_cookie=["NID=2"]),
-        Response(pages.NO_JS_PAGE),
-        Response(SERVED.html),
-    ])
+    client = Client(
+        [
+            Response(SERVED.html, set_cookie=["NID=2"]),
+            Response(pages.NO_JS_PAGE),
+            Response(SERVED.html),
+        ]
+    )
     s, _ = session(client)
+    s.inner.cookie_after_search = "SID=fresh"
     s.search("a b", direct=True)
     passed = s.search("c d", direct=True)
     assert s.inner.searched == ["c d"] and passed is SERVED
     assert s.inner.pushed == ["SID=browser; NID=2"]
-    s.inner.cookie = "SID=fresh"
-    s._cookie = s.inner.google_cookies()
     s.search("e f", direct=True)
     assert dict(client.sent[-1][1])["cookie"] == "SID=fresh"
 

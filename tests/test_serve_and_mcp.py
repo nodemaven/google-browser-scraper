@@ -468,8 +468,16 @@ def test_compact_carries_the_first_ai_overview():
 def test_compact_carries_the_map_places():
     from google_browser_scraper.mcp import compact
 
-    place = {"position": 1, "title": "P", "rating": 4.5, "reviews": 10, "price": "$",
-             "type": "Cafe", "address": "1 Main St", "extensions": ["1 Main St"]}
+    place = {
+        "position": 1,
+        "title": "P",
+        "rating": 4.5,
+        "reviews": 10,
+        "price": "$",
+        "type": "Cafe",
+        "address": "1 Main St",
+        "extensions": ["1 Main St"],
+    }
     out = compact([{"organic_results": [], "local_results": [place]}])
     assert out["places"] == [
         {"title": "P", "rating": 4.5, "reviews": 10, "type": "Cafe", "address": "1 Main St"}

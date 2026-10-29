@@ -694,9 +694,7 @@ class Scraper:
         self._saved = 0
         self.stats = Stats()
 
-    def share(
-        self, breaker: Breaker, templates: Templates, headers: Headers | None = None
-    ) -> None:
+    def share(self, breaker: Breaker, templates: Templates, headers: Headers | None = None) -> None:
         """Use a breaker, a template and the hybrid's request headers that other
         scrapers use too (see `Pool`). The shared template is left for its
         owner to drop when this one closes."""
