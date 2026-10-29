@@ -179,6 +179,8 @@ def merge_stats(parts: Iterable[Stats]) -> Stats:
             "queries_failed",
             "exits_refused",
             "exits_unreachable",
+            "exits_poisoned",
+            "pages_http",
             "bytes_total",
             "bytes_warm",
             "links_resolved",

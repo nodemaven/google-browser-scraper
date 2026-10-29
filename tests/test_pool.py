@@ -243,3 +243,13 @@ def test_workers_with_different_shared_settings_are_refused():
 
     with pytest.raises(ValueError, match="same for every worker"):
         list(Pool(make, 2, sleep=lambda seconds: None).run(["a"]))
+
+
+def test_merged_stats_carry_the_hybrid_counters():
+    from google_browser_scraper.pool import merge_stats
+    from google_browser_scraper.scraper import Stats
+
+    a, b = Stats(), Stats()
+    a.pages_http, b.pages_http, b.exits_poisoned = 3, 4, 1
+    merged = merge_stats([a, b])
+    assert merged.pages_http == 7 and merged.exits_poisoned == 1
