@@ -270,7 +270,7 @@ def test_next_page_is_none_when_google_has_no_further_page():
 
 def test_one_session_records_a_netlog_and_reads_it_on_suspend(monkeypatch):
     headers = Headers()
-    monkeypatch.setattr(hybrid, "read_netlog", lambda path: [REQUEST])
+    monkeypatch.setattr(hybrid, "read_netlog", lambda path, **kw: [REQUEST])
     s, _ = session(Client([]), headers=headers)
     other, _ = session(Client([]), headers=headers)
     assert s.inner.netlogs[0] and other.inner.netlogs == [None]

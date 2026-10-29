@@ -31,8 +31,9 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
+from urllib.parse import urlsplit
 
-from .browser import Fetched, results_url
+from .browser import Fetched, results_url, search_page
 from .classify import classify
 from .parse import parse_serp
 
@@ -321,7 +322,7 @@ class HybridSession:
             return
         requests: list[dict] = []
         try:
-            requests = read_netlog(path)
+            requests = read_netlog(path, host=urlsplit(search_page()).netloc)
         except Exception as exc:
             self._emit({"event": "hybrid_headers_failed", "error": type(exc).__name__})
         finally:

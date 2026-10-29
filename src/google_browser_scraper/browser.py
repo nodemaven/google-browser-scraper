@@ -22,7 +22,13 @@ from dataclasses import dataclass, field, replace
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 HOME_URL = "https://www.google.com/?hl=en"
-GOOGLE_SEARCH = "https://www.google.com/search"
+
+
+def search_page() -> str:
+    """Google's results page without a query, on the host of `HOME_URL`: what
+    cookies are read for and what the hybrid looks for in a NetLog."""
+    home = urlsplit(HOME_URL)
+    return urlunsplit((home.scheme, home.netloc, "/search", "", ""))
 
 
 def results_url(query: str, hl: str = "en", gl: str | None = None, start: int = 0) -> str:
@@ -35,8 +41,7 @@ def results_url(query: str, hl: str = "en", gl: str | None = None, start: int = 
         params["gl"] = gl
     if start:
         params["start"] = str(start)
-    home = urlsplit(HOME_URL)
-    return urlunsplit((home.scheme, home.netloc, "/search", urlencode(params), ""))
+    return search_page() + "?" + urlencode(params)
 
 
 #: How a query gets into the search box: key by key, all at once, or one word
@@ -269,13 +274,13 @@ class BrowserSession:
 
     def google_cookies(self) -> str:
         """The cookies the browser would send to Google search, as one header."""
-        cookies = self._context.cookies(GOOGLE_SEARCH)
+        cookies = self._context.cookies(search_page())
         return "; ".join(f"{c['name']}={c['value']}" for c in cookies)
 
     def set_google_cookies(self, header: str, deleted: tuple[str, ...] = ()) -> None:
         """Take the values in a cookie header, keeping each cookie's attributes,
         and drop the cookies named in `deleted` that the header does not set."""
-        known = {c["name"]: c for c in self._context.cookies(GOOGLE_SEARCH)}
+        known = {c["name"]: c for c in self._context.cookies(search_page())}
         pairs = [p.strip().split("=", 1) for p in header.split(";") if "=" in p]
         for name in set(deleted) - {name for name, _ in pairs}:
             self._context.clear_cookies(name=name, domain=".google.com")
