@@ -181,6 +181,11 @@ def test_direct_mode_counts_without_an_upstream(echo):
     address = relay.start()
     try:
         head, echoed = _tunnel(address, f"127.0.0.1:{echo}", b"abc")
+        # The relay counts a chunk after passing it on, so the echo can reach
+        # the client before the last count lands.
+        deadline = time.monotonic() + 5
+        while relay.total < 6 and time.monotonic() < deadline:
+            time.sleep(0.01)
     finally:
         relay.stop()
     assert head.startswith("HTTP/1.1 200") and echoed == b"abc"
