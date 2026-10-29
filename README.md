@@ -43,9 +43,10 @@ that browser, checks whether Google served results or refused, and writes one
 JSON record per results page. Captchas, blocks and failures are reported as
 such, never as "no results".
 
-Once Google serves the browser, most results pages come over plain HTTP with
-the browser's own cookies and request headers, and the browser runs only when
-Google asks for its check again. A results page fetched that way is a single
+Once Google serves the browser, most results pages come over direct HTTPS
+requests with the browser's own cookies and request headers, and the browser
+runs only when Google asks for its check again or a request does not bring a
+usable page. A results page fetched that way is a single
 document instead of a fully rendered page, so it costs a fraction of the
 traffic.
 

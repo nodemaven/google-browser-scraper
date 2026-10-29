@@ -1217,3 +1217,13 @@ def test_the_gap_counts_from_the_last_page_so_a_paused_caller_is_not_made_to_wai
     count = len(slept)
     s.search("c")
     assert len(slept) == count
+
+
+def test_a_poisoned_page_does_not_reset_the_breaker():
+    s = scraper([[SERVED] * 3, [SERVED]], Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)))
+    resets = []
+    s._breaker.served = lambda: resets.append(1)
+    list(s.run(["symptoms of strep throat", "mortgage calculator taxes", "fish tank setup"]))
+    # Two pages before the streak and the third on the new exit reset it; the
+    # poisoned third page on the first exit does not.
+    assert len(resets) == 3

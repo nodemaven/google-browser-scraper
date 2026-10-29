@@ -220,7 +220,9 @@ class BrowserSession:
         """Type `query` into Google's box and return the page it led to; with
         `direct`, open the results page for it instead. `hl` and `gl` override
         the session's for this query, and open the results page directly."""
-        if direct or hl or gl:
+        # The search box path opens the English front page and has no place
+        # for a country, so any other language or country goes through the URL.
+        if direct or hl or gl or self._gl or self._hl != "en":
             return self._search_direct(query, hl=hl, gl=gl)
         page = self.page
         timings: dict[str, float] = {}
@@ -268,8 +270,11 @@ class BrowserSession:
         cookies = self._context.cookies(GOOGLE_SEARCH)
         return "; ".join(f"{c['name']}={c['value']}" for c in cookies)
 
-    def set_google_cookies(self, header: str) -> None:
-        """Take the values in a cookie header, keeping each cookie's attributes."""
+    def set_google_cookies(self, header: str, deleted: tuple[str, ...] = ()) -> None:
+        """Take the values in a cookie header, keeping each cookie's attributes,
+        and drop the cookies named in `deleted`."""
+        for name in deleted:
+            self._context.clear_cookies(name=name, domain=".google.com")
         known = {c["name"]: c for c in self._context.cookies(GOOGLE_SEARCH)}
         update = []
         for part in header.split(";"):

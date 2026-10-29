@@ -1,4 +1,4 @@
-"""Results pages over plain HTTP between the browser's checks.
+"""Results pages over HTTPS requests between the browser's checks.
 
 A browser that Google serves has passed a JavaScript check, and the cookies it
 holds afterwards are what Google accepts. An HTTP client with Chromium's TLS
@@ -28,6 +28,8 @@ import re
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from .browser import Fetched, results_url
@@ -98,8 +100,25 @@ def replay_headers(request: dict, cookie: str) -> list[tuple[str, str]]:
     return out
 
 
-def fold_cookies(cookie: str, set_cookies: list[str]) -> str:
-    """Apply Set-Cookie headers to a cookie string, keeping the order."""
+def _expired(header: str) -> bool:
+    low = header.lower()
+    if "max-age=0" in low or re.search(r"max-age=-\d", low):
+        return True
+    found = re.search(r"expires=([^;]+)", header, re.IGNORECASE)
+    if not found:
+        return False
+    try:
+        when = parsedate_to_datetime(found.group(1).strip())
+    except (TypeError, ValueError):
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when <= datetime.now(timezone.utc)
+
+
+def fold_cookies(cookie: str, set_cookies: list[str], deleted: set[str] | None = None) -> str:
+    """Apply Set-Cookie headers to a cookie string, keeping the order. Names a
+    header expired are dropped, and added to `deleted` when given."""
     pairs = []
     for part in cookie.split(";"):
         if "=" in part:
@@ -110,7 +129,7 @@ def fold_cookies(cookie: str, set_cookies: list[str]) -> str:
         if "=" not in first:
             continue
         name, value = first.split("=", 1)
-        gone = "max-age=0" in header.lower() or "1970" in header
+        gone = _expired(header)
         for pair in pairs:
             if pair[0] == name:
                 pair[1] = value
@@ -119,6 +138,8 @@ def fold_cookies(cookie: str, set_cookies: list[str]) -> str:
             pairs.append([name, value])
         if gone:
             pairs = [p for p in pairs if p[0] != name]
+            if deleted is not None:
+                deleted.add(name)
     return "; ".join(f"{n}={v}" for n, v in pairs)
 
 
@@ -220,6 +241,8 @@ class HybridSession:
         self._netlog: str | None = None
         self._http = None
         self._cookie = ""
+        #: Cookies a response over HTTP deleted, still in the browser's jar.
+        self._deleted: set[str] = set()
         self._series = 0
         self._weak = 0
         self._off = False
@@ -244,7 +267,11 @@ class HybridSession:
 
     def __enter__(self) -> HybridSession:
         self._start_netlog()
-        self.inner.__enter__()
+        try:
+            self.inner.__enter__()
+        except BaseException:
+            self._read_netlog()  # releases the capture for another session
+            raise
         return self
 
     def __exit__(self, *exc) -> None:
@@ -349,7 +376,8 @@ class HybridSession:
 
     def _browser(self, call, query: str | None, page: int = 1) -> Fetched | None:
         if self._cookie:
-            self.inner.set_google_cookies(self._cookie)
+            self.inner.set_google_cookies(self._cookie, tuple(sorted(self._deleted)))
+            self._deleted.clear()
         fetched = call()
         self._last_source = "browser"
         self._last = None
@@ -378,7 +406,7 @@ class HybridSession:
             self._end_series("error", type(exc).__name__)
             return None
         load = round(time.monotonic() - mark, 2)
-        self._cookie = fold_cookies(self._cookie, set_cookie_headers(response))
+        self._cookie = fold_cookies(self._cookie, set_cookie_headers(response), self._deleted)
         html = response.text
         verdict = classify(response.url, html, response.status_code)
         if not verdict.served:

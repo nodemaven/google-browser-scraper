@@ -289,7 +289,8 @@ def test_mcp_tool_call_returns_compact_results(worker):
 def test_mcp_tool_call_takes_hl_and_gl(worker):
     server = McpServer(worker, stdout=io.StringIO())
     args = {"query": "shoes", "hl": "pt-BR", "gl": "br"}
-    assert rpc(server, "tools/call", {"name": "google_search", "arguments": args})["result"]
+    reply = rpc(server, "tools/call", {"name": "google_search", "arguments": args})
+    assert reply["result"]["isError"] is False
     assert worker.fake.locales[-1] == {"hl": "pt-BR", "gl": "br"}
     bad_args = {"query": "q", "gl": "1"}
     bad = rpc(server, "tools/call", {"name": "google_search", "arguments": bad_args})
@@ -482,3 +483,12 @@ def test_compact_carries_the_map_places():
     assert out["places"] == [
         {"title": "P", "rating": 4.5, "reviews": 10, "type": "Cafe", "address": "1 Main St"}
     ]
+
+
+def test_an_ai_overview_alone_is_not_a_tool_error():
+    from google_browser_scraper.mcp import compact
+
+    body = compact(
+        [{"organic_results": [], "ai_overview": {"text": "x" * 300}}, {"error": "refused"}]
+    )
+    assert body["ai_overview"] and body["errors"]

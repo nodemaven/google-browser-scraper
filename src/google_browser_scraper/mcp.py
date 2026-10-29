@@ -176,7 +176,8 @@ class McpServer:
         body = compact(records)
         return {
             "content": [{"type": "text", "text": json.dumps(body, ensure_ascii=False)}],
-            "isError": not body["results"] and bool(body.get("errors")),
+            "isError": not (body["results"] or body.get("ai_overview") or body.get("places"))
+            and bool(body.get("errors")),
         }
 
     def _write(self, message: dict[str, Any]) -> None:

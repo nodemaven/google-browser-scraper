@@ -20,6 +20,7 @@ from .parse import parse_serp
 from .pool import Pool
 from .proxy import NodeMavenDemoSource, NodeMavenSource, ProxyTemplate
 from .scraper import DIRECT_MODES, ExitsRefused, Scraper, Settings
+from .server import locale_problem
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -296,6 +297,9 @@ def _proxy_source(args) -> Iterator[Any]:
 
 
 def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[Scraper, str]:
+    problem = locale_problem(args.hl, args.gl)
+    if problem:
+        raise ValueError(problem.replace("hl", "--hl", 1).replace("gl", "--gl", 1))
     browser_args = tuple(args.browser_args) + tuple(
         shlex.split(os.environ.get("GBS_BROWSER_ARGS", ""))
     )

@@ -45,7 +45,12 @@ def relevance(query: str, titles: list[str]) -> float:
     if not words or not titles:
         return 1.0
     need = max(1, (len(words) + 1) // 2)
-    return sum(1 for t in titles if sum(w in t.lower() for w in words) >= need) / len(titles)
+    # At the start of a title word, so "cat" is not found in "education"; a
+    # prefix is enough because the query word is stemmed.
+    found = [re.compile(r"(?<![^\W_])" + re.escape(w)) for w in words]
+    return sum(1 for t in titles if sum(bool(f.search(t.lower())) for f in found) >= need) / len(
+        titles
+    )
 
 
 def unrelated(query: str, titles: list[str]) -> bool | None:

@@ -246,7 +246,9 @@ class Settings:
     #: the same profile and exit. Google's renderer grows by 10-20 MB a page
     #: and a new tab reuses it, so only a new browser gives the memory back;
     #: at 50 a browser stays under about a gigabyte. It waits
-    #: `settle_seconds` before searching again. 0 never restarts.
+    #: `settle_seconds` before searching again. 0 never restarts on a page
+    #: count; the hybrid still restarts once per run, after its first served
+    #: browser search, to read Chromium's request headers (see `hybrid`).
     restart_every: int = 50
     #: Copies carry the template's HTTP cache, so a new exit starts with the
     #: cheap pages of a long hold. After CACHE_REFUSALS refused copies that
@@ -861,9 +863,6 @@ class Scraper:
             self._event("query", identity, q=query, page=1, verdict=verdict.kind)
             saved = self._keep(fetched, query, 1, verdict)
             if verdict.served:
-                self._breaker.served()
-                if identity.clone and identity.queries == 1:
-                    self._templates.copy_served(identity.template)
                 record = self._served(query, 1, fetched, verdict, identity, started, before, saved)
                 if self._poisoned(identity, query, record):
                     # Results for other queries than the one asked: Google's
@@ -877,6 +876,9 @@ class Scraper:
                     self._retire("poisoned")
                     self._count_failure()
                     continue
+                self._breaker.served()
+                if identity.clone and identity.queries == 1:
+                    self._templates.copy_served(identity.template)
                 if more:
                     self._top_up()
                 yield record

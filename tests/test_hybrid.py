@@ -96,7 +96,7 @@ class Inner:
     def google_cookies(self):
         return self.cookie
 
-    def set_google_cookies(self, header):
+    def set_google_cookies(self, header, deleted=()):
         self.pushed.append(header)
 
 
@@ -317,3 +317,46 @@ def test_curl_presents_the_newest_chrome_it_can_that_is_not_newer_than_the_brows
     assert hybrid.impersonate_for(request("Mozilla/5.0 Chrome/156.0.8078.4")) == "chrome152"
     assert hybrid.impersonate_for(request("Mozilla/5.0 Chrome/140.0.1.1")) == "chrome146"
     assert hybrid.impersonate_for(None) == hybrid.IMPERSONATE
+
+
+def test_any_past_expiry_deletes_a_cookie_and_is_reported():
+    deleted = set()
+    cookie = hybrid.fold_cookies(
+        "A=1; B=2; C=3",
+        ["A=x; Expires=Wed, 21 Oct 2015 07:28:00 GMT", "B=y; Max-Age=-1", "C=4; Path=/"],
+        deleted,
+    )
+    assert cookie == "C=4" and deleted == {"A", "B"}
+
+
+def test_cookies_deleted_over_http_leave_the_browser_on_the_next_check():
+    client = Client(
+        [Response(SERVED.html, set_cookie=["OLD=x; Max-Age=0"]), Response(pages.NO_JS_PAGE)]
+    )
+    inner = Inner()
+    calls = []
+    inner.set_google_cookies = lambda header, deleted=(): calls.append((header, deleted))
+    s, _ = session(client, inner=inner)
+    s.search("a b", direct=True)
+    s.search("c d", direct=True)
+    assert calls == [("SID=browser", ("OLD",))]
+
+
+def test_a_failed_launch_releases_the_netlog_capture():
+    headers = Headers()
+
+    class Broken(Inner):
+        def __enter__(self):
+            raise RuntimeError("no browser")
+
+    s = HybridSession(Broken(), "http://127.0.0.1:1", headers)
+    try:
+        s.__enter__()
+    except RuntimeError:
+        pass
+    assert headers.claim_capture() is True
+
+
+def test_a_query_word_must_start_a_title_word():
+    assert quality.relevance("cat", ["Education policy"]) == 0.0
+    assert quality.relevance("cat", ["Cat toys for kittens"]) == 1.0
