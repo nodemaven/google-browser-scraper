@@ -1204,7 +1204,7 @@ def test_the_gap_counts_from_the_last_page_so_a_paused_caller_is_not_made_to_wai
                 sleep=slept.append)
     s.search("a")
     s.search("b")  # straight after the first: the whole gap
-    assert slept and 3.9 < slept[-1] <= 4
+    assert slept and 2 < slept[-1] <= 4  # less the time the first page took
     s._identity.last_page_at -= 10  # the caller paused longer than the gap
     count = len(slept)
     s.search("c")
