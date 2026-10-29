@@ -56,7 +56,7 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         metavar="N",
-        help="exits to search on at once, one browser each (default 1)",
+        help="proxy IPs to search on at once, one browser each (default 1)",
     )
     search.add_argument("--format", choices=list(WRITERS), default="jsonl")
     search.add_argument("-o", "--output", type=Path, help="output file (default stdout)")
@@ -75,14 +75,14 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--max-pages", type=int, default=3)
     serve.add_argument(
-        "--prewarm", action="store_true", help="find an exit Google serves before the first request"
+        "--prewarm", action="store_true", help="find a proxy IP Google serves before the first request"
     )
     serve.set_defaults(handler=_serve)
 
     mcp = sub.add_parser("mcp", help="MCP server over stdio with a google_search tool")
     _scraper_options(mcp)
     mcp.add_argument(
-        "--prewarm", action="store_true", help="find an exit Google serves before the first call"
+        "--prewarm", action="store_true", help="find a proxy IP Google serves before the first call"
     )
     mcp.set_defaults(handler=_mcp)
 
@@ -117,7 +117,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         "NODEMAVEN_API_KEY (the dashboard API key, not the proxy login/password)",
     )
     source.add_argument("--no-proxy", action="store_true", help="use this machine's own connection")
-    p.add_argument("--country", help="exit country for --nodemaven / --nodemaven-demo, e.g. us")
+    p.add_argument("--country", help="proxy IP country for --nodemaven / --nodemaven-demo, e.g. us")
     p.add_argument(
         "--traffic-limit-mb",
         type=float,
@@ -141,14 +141,14 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         "--warmup",
         choices=list(warmup.LADDERS),
         default=warmup.DEFAULT,
-        help=f"pages opened before the first query on an exit (default {warmup.DEFAULT}; "
-        "light skips Google Trends for much less traffic per fresh exit)",
+        help=f"pages opened before the first query on a proxy IP (default {warmup.DEFAULT}; "
+        "light skips Google Trends for much less traffic per fresh proxy IP)",
     )
     p.add_argument(
         "--max-per-exit",
         type=int,
         default=300,
-        help="queries before an exit is retired even if still served (default 300)",
+        help="queries before a proxy IP is retired even if still served (default 300)",
     )
     p.add_argument(
         "--no-clone-cache",
@@ -161,7 +161,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         type=int,
         default=50,
         metavar="N",
-        help="results pages before the browser is restarted on the same profile and exit, "
+        help="results pages before the browser is restarted on the same profile and proxy IP, "
         "which keeps its memory from growing (default 50; 0 never)",
     )
     p.add_argument(
@@ -169,15 +169,15 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         type=int,
         default=0,
         metavar="N",
-        help="exits to warm in the background while the current one serves, so a "
-        "retired exit is replaced without waiting (default 0; each costs a warm-up)",
+        help="proxy IPs to warm in the background while the current one serves, so a "
+        "retired one is replaced without waiting (default 0; each costs a warm-up)",
     )
     p.add_argument(
         "--clone",
         type=int,
         default=10,
         metavar="N",
-        help="start up to N new exits from copies of the first served exit's cookies "
+        help="start up to N new proxy IPs from copies of the first served one's cookies "
         "instead of warming each one (default 10; 0 turns it off)",
     )
     p.add_argument(
@@ -206,7 +206,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         choices=DIRECT_MODES,
         default="all",
         help="which queries open the results page directly instead of going through "
-        "the search box: all (default), all but an exit's first, or none",
+        "the search box: all (default), all but the first on each proxy IP, or none",
     )
     p.add_argument(
         "--stop-after-read",
@@ -219,7 +219,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         type=_pair,
         default=(2.0, 5.0),
         metavar="LOW,HIGH",
-        help="seconds between queries on one exit (default 2,5)",
+        help="seconds between queries on one proxy IP (default 2,5)",
     )
     p.add_argument(
         "--headless",
@@ -249,13 +249,13 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--hl", default="en", help="interface language of the results, e.g. de")
     p.add_argument(
         "--gl",
-        help="country the results are for, e.g. de; unset, Google picks it from the exit",
+        help="country the results are for, e.g. de; unset, Google picks it from the proxy IP",
     )
     p.add_argument(
         "--save-html",
         type=Path,
         metavar="DIR",
-        help="keep every page's HTML here, gzipped (they carry the exit's location)",
+        help="keep every page's HTML here, gzipped (they carry the proxy IP's location)",
     )
     p.add_argument(
         "--no-resolve-links",
@@ -286,7 +286,7 @@ def _proxy_source(args) -> Iterator[Any]:
         proxy = ProxyTemplate(url)
     if proxy is not None and not proxy.sticky:
         print(
-            "warning: the proxy URL has no {session} placeholder, so the exit may change "
+            "warning: the proxy URL has no {session} placeholder, so the proxy IP may change "
             "between requests and warming it does nothing",
             file=sys.stderr,
         )

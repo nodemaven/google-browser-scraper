@@ -29,7 +29,7 @@
 
 | ✅ **100%** | 📉 **0.4 MB** | ⚡ **1.4 s** |
 |:---:|:---:|:---:|
-| success rate | per search | per search on a warm exit |
+| success rate | per search | per search on a warm proxy IP |
 
 <sub>Latest version benchmarks (v0.1)</sub>
 
@@ -40,7 +40,7 @@ residential proxy, and get clean JSON back. Use it as a CLI, a Python library,
 a local HTTP API, or an MCP server that gives AI agents live Google search.
 
 Plain HTTP is no longer a reliable way to scrape Google, and a fresh browser on a
-fresh proxy exit is refused quickly. So the scraper warms a sticky proxy session
+fresh proxy IP is refused quickly. So the scraper warms a sticky proxy session
 with ordinary browsing, lets the browser pass Google's checks, and then fetches
 results pages directly over HTTPS with the browser's own cookies. Captchas and
 blocks are reported as such, never as "no results".
@@ -58,7 +58,7 @@ Results pages over HTTPS between Google's checks: a fraction of a browser's traf
 <td width="50%" valign="top">
 
 🛡️ **Poisoned results protection**<br>
-Pages of results for some other query are caught and never returned; the query is asked again on a fresh exit.
+Pages of results for some other query are caught and never returned; the query is asked again on a fresh proxy IP.
 
 </td>
 </tr>
@@ -132,8 +132,8 @@ google-browser-scraper search "best running shoes" \
   -o results.jsonl
 ```
 
-The first query takes a few minutes while a new exit warms up; later queries on
-the same exit take seconds. Every run ends with a summary of pages served and
+The first query takes a few minutes while a new proxy IP warms up; later queries on
+the same proxy IP take seconds. Every run ends with a summary of pages served and
 traffic used.
 
 ### With NodeMaven
@@ -176,7 +176,7 @@ google-browser-scraper search "best running shoes" --no-proxy
 ```
 
 Google then sees one address for every query, so it starts answering with
-captchas sooner than it would across a pool of exits. Those pages come back as
+captchas sooner than it would across a pool of proxy IPs. Those pages come back as
 `captcha` in `page_verdict`, not as empty results.
 
 </details>
@@ -220,7 +220,7 @@ switch with minimal mapping.
 - `organic_results`, `ads`, `related_questions`, `related_searches`, `pagination`, `search_metadata`
 - `ai_overview`: the text of Google's AI Overview when the page shows one (pages in English, `--hl en`, the default)
 - `local_results`: the places of the map pack on local queries (name, rating, reviews, type, address, phone, opening hours)
-- `exit`: which proxy session answered and how many bytes the page cost
+- `exit`: which proxy IP (sticky session) answered and how many bytes the page cost
 - `search_metadata.fetched_with`: `http` or `browser`
 - `search_metadata.timings`: seconds per step (`http` for a page fetched over HTTP; `type`, `load`, `ready` and `read` for one the browser rendered; `parse`; `links`, which overlaps the next query)
 - A query that failed is a record too, with an `error`
@@ -237,7 +237,7 @@ Google does not always block a scraper. Sometimes it answers with a normal-looki
 results page for a different query: no captcha, no error, just wrong data that
 slips into your pipeline unnoticed.
 
-The scraper checks every results page against the query it asked. When an exit
+The scraper checks every results page against the query it asked. When a proxy IP
 starts returning unrelated results, it is dropped and the query is asked again on
 a fresh one, so poisoned pages never reach your output.
 
@@ -253,8 +253,8 @@ curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 
 - Same record format as above
 - `hl` (language) and `gl` (country) per request: `/search.json?q=...&hl=de&gl=at`
-- `--prewarm` finds a served exit at startup, so the first request does not wait for a warm-up; `/health` answers 503 `warming` until then
-- Requests run one at a time on one held identity
+- `--prewarm` finds a proxy IP Google serves at startup, so the first request does not wait for a warm-up; `/health` answers 503 `warming` until then
+- Requests run one at a time on one held proxy IP
 - Set `GBS_API_KEY` to require a key; without one the server only listens on localhost
 
 ## Use it from an AI agent (MCP)
@@ -292,17 +292,17 @@ To build it yourself: `docker build -t google-browser-scraper .`
 
 1. **New identity:** a sticky proxy session and a fresh browser profile.
 2. **Warm-up:** a few ordinary pages, staying on each for 20-45 seconds.
-3. **Search:** the first query on an exit goes through the browser. Once Google
+3. **Search:** the first query on a proxy IP goes through the browser. Once Google
    serves it, the next pages come over HTTPS with the browser's cookies, until
    Google asks for its check again.
 4. **Check before parsing:** a captcha or a block is reported as one, never
    parsed as an empty result.
-5. **Keep or drop:** an exit Google answers is reused; one it refuses is dropped
-   and the query retried on a new one. If exit after exit is refused, the run
+5. **Keep or drop:** a proxy IP Google answers is reused; one it refuses is dropped
+   and the query retried on a new one. If one proxy IP after another is refused, the run
    stops instead of spending more traffic.
 
 <details>
-<summary><b>More detail: HTTP between checks, holding exits, copied cookies, result links, traffic</b></summary>
+<summary><b>More detail: HTTP between checks, holding proxy IPs, copied cookies, result links, traffic</b></summary>
 
 <br>
 
@@ -311,27 +311,27 @@ are fetched over HTTPS with the browser's own headers and cookies. If that stops
 working, the scraper goes back to the browser on its own. `--no-hybrid` uses the
 browser for every page.
 
-**Unrelated results.** An exit that starts returning results unrelated to the
+**Unrelated results.** A proxy IP that starts returning results unrelated to the
 queries is dropped, and the query is asked again on a new one.
 
-**Holding exits.** A served exit is kept for up to 300 queries. Every new exit
+**Holding proxy IPs.** A served proxy IP is kept for up to 300 queries. Every new one
 pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 50
-results pages it renders, the browser is restarted on the same profile and exit, which keeps
+results pages it renders, the browser is restarted on the same profile and proxy IP, which keeps
 its memory from growing over a long hold. A browser error on a search is retried
-once on the same exit before the exit is dropped; a network error, running out of
+once on the same proxy IP before it is dropped; a network error, running out of
 memory or a crashed browser drops it at once.
 
-**Copying cookies.** The command line copies the cookies of the first exit
-Google serves and starts new exits from that copy, on new sticky sessions,
+**Copying cookies.** The command line copies the cookies of the first proxy IP
+Google serves and starts new proxy IPs from that copy, on new sticky sessions,
 instead of warming each one; all workers share the copy. Google's acceptance
 follows the cookies more than the address, so a copy usually starts out served
 and costs a few MB instead of a full warm-up. A copy waits 40-60 seconds after
 its browser starts before the first search.
 
-**Copying the cache.** Pages get cheaper as an exit is held, because the
+**Copying the cache.** Pages get cheaper as a proxy IP is held, because the
 browser cache fills with Google's shared scripts and images. Copies carry that
-cache too, so a new exit starts with cheap pages, and the copy is refreshed
-from the held exit at each browser restart, when its cache is warm. If two
+cache too, so a new proxy IP starts with cheap pages, and the copy is refreshed
+from the held one at each browser restart, when its cache is warm. If two
 copies carrying the cache are refused on their first search, the rest of the
 run copies cookies only (`--no-clone-cache` does that from the start).
 
@@ -358,20 +358,20 @@ The defaults come from measurements in
 
 | Option | Default | What it does |
 |---|---|---|
-| `--workers N` | 1 | Search on N exits at once, one browser each, from one list of queries |
-| `--max-per-exit N` | 300 | Queries before a served exit is retired |
-| `--restart-every N` | 50 | Results pages the browser rendered before it restarts on the same profile and exit; `0` never |
+| `--workers N` | 1 | Search on N proxy IPs at once, one browser each, from one list of queries |
+| `--max-per-exit N` | 300 | Queries before a served proxy IP is retired |
+| `--restart-every N` | 50 | Results pages the browser rendered before it restarts on the same profile and proxy IP; `0` never |
 | `--no-hybrid` | | Fetch every results page in the browser instead of over HTTP between Google's checks |
 | `--hl`, `--gl` | `en`, unset | Language and country of the results |
-| `--clone N` | 10 | New exits started from copied cookies; `0` turns copying off |
+| `--clone N` | 10 | New proxy IPs started from copied cookies; `0` turns copying off |
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |
 | `--no-clone-cache` | | Copies carry cookies only, not the browser cache |
-| `--warmup` | `L3` | Pages a fresh exit opens before its first query: `L3`, `light` (without Google Trends: much less traffic, served on the first query less often), `L2`, `L1`, `off` |
-| `--spare N` | 0 | Exits warmed in the background so a retired one is replaced at once; each costs a warm-up |
-| `--direct` | `all` | Open results pages directly: `all`, `follow-ups` (all but an exit's first query), `none` |
+| `--warmup` | `L3` | Pages a fresh proxy IP opens before its first query: `L3`, `light` (without Google Trends: much less traffic, served on the first query less often), `L2`, `L1`, `off` |
+| `--spare N` | 0 | Proxy IPs warmed in the background so a retired one is replaced at once; each costs a warm-up |
+| `--direct` | `all` | Open results pages directly: `all`, `follow-ups` (all but the first query on each proxy IP), `none` |
 | `--input` | `type` | How a query goes into the search box: `type`, `insert`, `words` |
-| `--gap LOW,HIGH` | 2,5 | Seconds between queries on one exit |
+| `--gap LOW,HIGH` | 2,5 | Seconds between queries on one proxy IP |
 | `--pages N` | 1 | Result pages per query |
 | `--format` | `jsonl` | `jsonl` or `csv` |
 | `--price-per-gb` | | Your proxy price, to print the cost per 1000 pages |
@@ -385,7 +385,7 @@ The defaults come from measurements in
 ## Proxies
 
 Any provider with sticky sessions works through `--proxy` and a `{session}`
-placeholder. A proxy without one is accepted with a warning: if the exit changes
+placeholder. A proxy without one is accepted with a warning: if the proxy IP changes
 on every request, warming it does nothing. SOCKS5 needs an IP-whitelisted
 endpoint, because Chrome cannot send a SOCKS5 username and password.
 
@@ -401,8 +401,8 @@ size. Google answers some machines much less than others, so run this first.
 
 ## What this is not
 
-Not a free Google Search API, and not a guarantee that every proxy exit will
-work. It is a browser-based collector that makes failures explicit, drops exits
+Not a free Google Search API, and not a guarantee that every proxy IP will
+work. It is a browser-based collector that makes failures explicit, drops proxy IPs
 Google refuses, and tells you what each page cost.
 
 ## Status
