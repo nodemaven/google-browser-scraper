@@ -53,7 +53,8 @@ Google's checks. A page fetched that way costs a fraction of the traffic.
 - **Low traffic:** results pages over HTTP with the browser's cookies between Google's checks; the browser takes over by itself when that stops working
 - **Bring your own proxy:** any residential proxy with sticky sessions, built-in [NodeMaven](https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=features) support
 - **SERP API alternative:** JSON with `organic_results`, `ads`, `related_questions`, `related_searches`, `pagination`, `ai_overview` and `local_results`
-- **Honest failures:** captchas and blocks come back labeled, not as empty results; an exit that keeps getting results unrelated to the queries is dropped
+- **Poisoned results protection:** pages of results for some other query are caught and never returned; the query is asked again on a fresh exit
+- **Honest failures:** captchas and blocks come back labeled, not as empty results
 - **Cost tracking:** bytes per page and cost per 1000 pages in every run summary
 - **Four ways to run it:** CLI, Python library, HTTP API, MCP server for AI agents
 - **Docker image** for self-hosted deployment
@@ -165,6 +166,17 @@ not part of `total_time_taken`). A query that
 failed is a record too, with an `error`. `--format csv` writes the organic
 results as a table, and `--price-per-gb` adds the cost per 1000 pages to the
 summary.
+
+## Poisoned results protection
+
+Google does not always block a scraper. Sometimes it answers with a normal-looking
+results page for a different query: no captcha, no error, just wrong data that
+slips into your pipeline unnoticed.
+
+The scraper checks every results page against the query it asked. When an exit
+starts returning unrelated results, it is dropped and the query is asked again on
+a fresh one, so poisoned pages never reach your output. The check runs on the
+page already downloaded: no extra requests, no extra traffic. On by default.
 
 ## Run it as an API
 
