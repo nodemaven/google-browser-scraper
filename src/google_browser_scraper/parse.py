@@ -188,6 +188,18 @@ _AI_CHROME = (
     "Dive deeper in AI Mode",
     "Thank you",
     "Your feedback helps Google improve.",
+    # The share panel.
+    "Share public link",
+    "Copy link",
+    "Link copied",
+    "Copied to clipboard",
+    "Failed to copy to clipboard. Try again later.",
+    "Can’t copy the link right now. Try again later.",
+    "Facebook",
+    "Gmail",
+    "Reddit",
+    "WhatsApp",
+    "LinkedIn",
 )
 _AI_MIN_TEXT = 200
 
@@ -256,9 +268,10 @@ _HOURS = re.compile(
 )
 
 
-#: An address carries a number or a comma ("1435 Broadway", "Brooklyn, NY",
-#: a plus code); service options ("Dine-in", "Takeout") carry neither.
-_ADDRESS_LIKE = re.compile(r"[\d,]")
+#: An address starts with a house number or carries a comma or a plus code
+#: ("1435 Broadway", "Brooklyn, NY", "J2C6+HC7"); service options ("Dine-in")
+#: and offers ("Rentals available from US$ 44/day") do not.
+_ADDRESS_LIKE = re.compile(r"^\d|,|\b[2-9C-X]{4}\+[2-9C-X]{2,3}\b")
 #: What Google lists next to a place instead of an address.
 _SERVICE_OPTIONS = frozenset(
     {
@@ -353,6 +366,20 @@ def _local_results(root) -> list[dict[str, Any]]:
     return places
 
 
+_BLOCKS = frozenset({"div", "p", "button", "li", "ul", "section", "footer", "g-more-link"})
+
+
+def _stands_alone(el) -> bool:
+    """Whether an element is not part of a sentence: a block of its own, or an
+    inline element whose parent holds no text besides it (or only labels)."""
+    if el.tag in _BLOCKS or el.get("role") == "button":
+        return True
+    parent = el.getparent()
+    if parent is None or _only_chrome(parent):
+        return True
+    return " ".join(parent.text_content().split()) == " ".join(el.text_content().split())
+
+
 def _only_chrome(el) -> bool:
     """Whether an element's text is nothing but the AI Overview's own labels."""
     rest = " ".join(el.text_content().split())
@@ -361,6 +388,15 @@ def _only_chrome(el) -> bool:
     for chrome in _AI_CHROME:
         rest = rest.replace(chrome, "")
     return not rest.strip(" .")
+
+
+_HIDDEN_PARTS = (
+    ".//*[@role='dialog' or @role='status' or @role='menu' or @role='alert' or @role='tooltip']"
+    # The notice under the answer, in its variants ("... For financial advice,
+    # consult a professional."), and the share panel's terms.
+    " | .//*[starts-with(normalize-space(text()), 'AI responses may include mistakes')]"
+    " | .//*[starts-with(normalize-space(text()), 'This public link is valid')]"
+)
 
 
 def _visible_text(el, *, skip_label: bool = False) -> str:
@@ -372,9 +408,19 @@ def _visible_text(el, *, skip_label: bool = False) -> str:
     if skip_label:
         for node in el.xpath(".//*[starts-with(normalize-space(text()), 'AI Mode reply for')]"):
             node.drop_tree()
+        # Panels the block opens on demand - sharing, feedback, a "copied"
+        # notice - are dialogs, menus and status lines. Hidden parts are not
+        # dropped: the answer behind "Show more" is hidden too.
+        for node in el.xpath(_HIDDEN_PARTS):
+            if node.getparent() is not None:
+                node.drop_tree()
         # The block's own buttons and notices, dropped only where an element
         # holds nothing else: the same words inside the answer stay.
-        labels = [node for node in el.iter() if isinstance(node.tag, str) and _only_chrome(node)]
+        labels = [
+            node
+            for node in el.iter()
+            if isinstance(node.tag, str) and _only_chrome(node) and _stands_alone(node)
+        ]
         for node in labels:
             if node.getparent() is not None:
                 node.drop_tree()

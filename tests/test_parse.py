@@ -207,3 +207,28 @@ def test_a_plain_street_name_is_an_address_but_a_service_option_is_not():
 
     assert _place_facts(["Broadway", "Open \u00b7 Closes 9 PM"])["address"] == "Broadway"
     assert "address" not in _place_facts(["Dine-in \u00b7 Takeout"])
+
+
+def test_an_offer_with_a_number_is_not_an_address_and_a_label_in_a_sentence_stays():
+    from google_browser_scraper.parse import _place_facts
+
+    lines = ["Broadway", "Rentals available from US$ 44/day", "12 Main St"]
+    assert _place_facts(lines)["address"] == "12 Main St"
+    assert _place_facts(["J2C6+HC7 Marrakesh"])["address"] == "J2C6+HC7 Marrakesh"
+    answer = pages.AI_ANSWER + " <span>Learn more</span> about pacing in week two."
+    page = pages.results_page(ai_overview=pages.ai_overview_block(answer))
+    assert "Learn more about pacing in week two." in parse_serp(page)["ai_overview"]["text"]
+
+
+def test_ai_overview_leaves_out_the_share_and_feedback_panels():
+    panels = (
+        '<div role="dialog"><span>Thank you</span> See our Privacy Policy. Report a problem</div>'
+        "<div><div>This public link is valid for 7 days.</div><span>Copy link</span>"
+        "<span>Facebook</span></div>"
+        "<div>AI responses may include mistakes. For financial advice, consult a professional.</div>"
+    )
+    block = pages.ai_overview_block().replace(
+        "<div>Show more</div>", "<div>Show more</div>" + panels
+    )
+    text = parse_serp(pages.results_page(ai_overview=block))["ai_overview"]["text"]
+    assert text == pages.AI_ANSWER

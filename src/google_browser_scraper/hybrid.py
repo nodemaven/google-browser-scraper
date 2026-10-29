@@ -258,6 +258,8 @@ class HybridSession:
         self._last_source: str | None = None
         #: A served browser search happened while a NetLog was being recorded.
         self._recorded = False
+        #: A recorded NetLog held no request; this session does not try again.
+        self._capture_failed = False
         #: Whether the browser has been served on this exit since it opened.
         #: A new exit's first search goes through the browser: the HTTP side
         #: with a copied profile's cookies is refused on an exit's first query.
@@ -310,7 +312,11 @@ class HybridSession:
 
     def _start_netlog(self) -> None:
         self._recorded = False
-        if self._headers.request is not None or not self._headers.claim_capture():
+        if (
+            self._headers.request is not None
+            or self._capture_failed
+            or not self._headers.claim_capture()
+        ):
             self.inner.netlog = None
             return
         fd, self._netlog = tempfile.mkstemp(prefix="gbs-netlog-", suffix=".json")
@@ -336,6 +342,11 @@ class HybridSession:
             self._headers.offer(requests)
         if self._headers.request is not None and requests:
             self._emit({"event": "hybrid_headers", "requests": len(requests)})
+        elif self._recorded:
+            # A served search left no request in the log (an engine or a
+            # browser that does not write it): one try, not a restart after
+            # every search.
+            self._capture_failed = True
 
     # -- browser pass-throughs ----------------------------------------------------
 
@@ -367,11 +378,13 @@ class HybridSession:
         return self._browser(lambda: self.inner.search(query, direct=direct, **self._locale), query)
 
     def next_page(self) -> Fetched | None:
-        if self._last_source == "http" and self._last is not None and self._usable():
+        if self._last_source == "http" and self._last is not None:
+            # The browser is not on this query's page, so its "Next" would be
+            # another query's: the next page is opened from the query itself.
             query, page, html = self._last
             if 'id="pnnext"' not in html:
                 return None  # Google has no further page
-            fetched = self._fetch(query, page + 1)
+            fetched = self._fetch(query, page + 1) if self._usable() else None
             if fetched is not None:
                 return fetched
             return self._browser(
@@ -418,7 +431,10 @@ class HybridSession:
             self._end_series("check" if verdict.kind == "no_js" else verdict.kind)
             return None
         # "No results" is an answer; an ordinary page without results is not.
-        if verdict.kind == "ok" and not parse_serp(html).get("organic_results"):
+        parsed = parse_serp(html) if verdict.kind == "ok" else {}
+        if verdict.kind == "ok" and not any(
+            parsed.get(f) for f in ("organic_results", "ai_overview", "local_results")
+        ):
             self._end_series("empty")
             return None
         self._series += 1

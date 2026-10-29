@@ -381,3 +381,30 @@ def test_a_cookie_set_again_after_its_deletion_is_not_reported_deleted():
     cookie = hybrid.fold_cookies("A=1", ["A=x; Max-Age=0"], deleted)
     cookie = hybrid.fold_cookies(cookie, ["A=2; Path=/"], deleted)
     assert cookie == "A=2" and deleted == set()
+
+
+def test_the_next_page_of_an_http_page_opens_that_query_when_http_is_off():
+    client = Client([Response(SERVED.html)])
+    s, headers = session(client)
+    s.search("a b", direct=True)
+    headers.disabled = True  # another worker turned the run to the browser
+    s.next_page()
+    assert s.inner.opened == [("a b", 10)]
+
+
+def test_a_netlog_without_a_request_is_not_recorded_again(monkeypatch):
+    headers = Headers()
+    monkeypatch.setattr(hybrid, "read_netlog", lambda path, **kw: [])
+    s, _ = session(Client([]), headers=headers)
+    s.search("q", direct=True)
+    s.suspend()
+    s.resume()
+    assert s.inner.netlogs[-1] is None and not s.needs_restart()
+
+
+def test_a_page_with_only_places_is_served_over_http():
+    html = pages.results_page(local=pages.local_pack_block()).replace('id="rso"', 'id="none"')
+    client = Client([Response(html)])
+    s, _ = session(client)
+    fetched = s.search("pizza near me", direct=True)
+    assert fetched.timings.get("http") is not None and s.inner.searched == []
