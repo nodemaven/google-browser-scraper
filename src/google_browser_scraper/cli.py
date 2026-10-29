@@ -20,6 +20,7 @@ from .parse import parse_serp
 from .pool import Pool
 from .proxy import NodeMavenDemoSource, NodeMavenSource, ProxyTemplate
 from .scraper import DIRECT_MODES, ExitsRefused, Scraper, Settings
+from .server import locale_problem
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -240,6 +241,17 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         help="hand the proxy to the browser directly, without the traffic count",
     )
     p.add_argument(
+        "--no-hybrid",
+        action="store_true",
+        help="fetch every results page in the browser; by default they come over HTTP "
+        "with the browser's cookies, and the browser handles only Google's checks",
+    )
+    p.add_argument("--hl", default="en", help="interface language of the results, e.g. de")
+    p.add_argument(
+        "--gl",
+        help="country the results are for, e.g. de; unset, Google picks it from the exit",
+    )
+    p.add_argument(
         "--save-html",
         type=Path,
         metavar="DIR",
@@ -285,6 +297,9 @@ def _proxy_source(args) -> Iterator[Any]:
 
 
 def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[Scraper, str]:
+    problem = locale_problem(args.hl, args.gl)
+    if problem:
+        raise ValueError(problem.replace("hl", "--hl", 1).replace("gl", "--gl", 1))
     browser_args = tuple(args.browser_args) + tuple(
         shlex.split(os.environ.get("GBS_BROWSER_ARGS", ""))
     )
@@ -308,8 +323,11 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
         timezone_id=args.timezone,
         browser_args=browser_args,
         use_relay=not args.no_relay,
+        hybrid=not args.no_hybrid,
         save_html=_html_dir(args.save_html, worker),
         resolve_links=not args.no_resolve_links,
+        hl=args.hl,
+        gl=args.gl,
     )
     log = None
     if args.verbose:

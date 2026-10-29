@@ -22,6 +22,28 @@ from dataclasses import dataclass, field, replace
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 HOME_URL = "https://www.google.com/?hl=en"
+
+
+def search_page() -> str:
+    """Google's results page without a query, on the host of `HOME_URL`: what
+    cookies are read for and what the hybrid looks for in a NetLog."""
+    home = urlsplit(HOME_URL)
+    return urlunsplit((home.scheme, home.netloc, "/search", "", ""))
+
+
+def results_url(query: str, hl: str = "en", gl: str | None = None, start: int = 0) -> str:
+    """Google's results page for `query`: `hl` is the interface language, `gl`
+    the country the results are for (Google picks one from the exit if unset),
+    `start` the first result's offset (10 for the second page). On the host of
+    `HOME_URL`, so a test can point both at a local server."""
+    params = {"q": query, "hl": hl}
+    if gl:
+        params["gl"] = gl
+    if start:
+        params["start"] = str(start)
+    return search_page() + "?" + urlencode(params)
+
+
 #: How a query gets into the search box: key by key, all at once, or one word
 #: at a time.
 INPUT_MODES = ("type", "insert", "words")
@@ -65,6 +87,8 @@ class BrowserSession:
     """
 
     name = "patchright"
+    #: Whether the hybrid (see `hybrid`) can drive this session.
+    hybrid_capable = True
 
     def __init__(
         self,
@@ -77,10 +101,14 @@ class BrowserSession:
         rng: random.Random | None = None,
         profile_dir: str | None = None,
         input_mode: str = "type",
+        hl: str = "en",
+        gl: str | None = None,
     ) -> None:
         if input_mode not in INPUT_MODES:
             raise ValueError(f"input mode must be one of {', '.join(INPUT_MODES)}")
         self._input = input_mode
+        self._hl = hl
+        self._gl = gl
         if any(a.startswith(("--disable-features", "--enable-features")) for a in browser_args):
             raise ValueError(
                 "--disable-features/--enable-features would replace the browser's "
@@ -98,6 +126,25 @@ class BrowserSession:
         # it is; either way the profile is removed on close.
         self._profile = profile_dir
         self.page = None
+        #: A file to record Chromium's NetLog into from the next launch; the
+        #: hybrid reads its request headers from one.
+        self.netlog: str | None = None
+
+    @property
+    def hl(self) -> str:
+        return self._hl
+
+    @property
+    def gl(self) -> str | None:
+        return self._gl
+
+    def launch_args(self) -> list[str] | None:
+        args = list(self._args)
+        if self.netlog:
+            # The default capture mode keeps every request header in order and
+            # strips cookie values, which the hybrid takes from the browser anyway.
+            args += [f"--log-net-log={self.netlog}"]
+        return args or None
 
     @property
     def profile_dir(self) -> str | None:
@@ -138,7 +185,7 @@ class BrowserSession:
             proxy=self._proxy,
             no_viewport=True,
             timezone_id=self._timezone_id,
-            args=self._args or None,
+            args=self.launch_args(),
         )
 
     def __exit__(self, *exc) -> None:
@@ -174,11 +221,16 @@ class BrowserSession:
 
     # -- searching -----------------------------------------------------------
 
-    def search(self, query: str, direct: bool = False) -> Fetched:
+    def search(
+        self, query: str, direct: bool = False, hl: str | None = None, gl: str | None = None
+    ) -> Fetched:
         """Type `query` into Google's box and return the page it led to; with
-        `direct`, open the results page for it instead."""
-        if direct:
-            return self._search_direct(query)
+        `direct`, open the results page for it instead. `hl` and `gl` override
+        the session's for this query, and open the results page directly."""
+        # The search box path opens the English front page and has no place
+        # for a country, so any other language or country goes through the URL.
+        if direct or hl or gl or self._gl or self._hl != "en":
+            return self._search_direct(query, hl=hl, gl=gl)
         page = self.page
         timings: dict[str, float] = {}
         mark = time.monotonic()
@@ -214,11 +266,40 @@ class BrowserSession:
         fetched = self._snapshot(nav.value, dismissed)
         return replace(fetched, timings={**timings, **fetched.timings})
 
-    def _search_direct(self, query: str) -> Fetched:
-        home = urlsplit(HOME_URL)
-        url = urlunsplit(
-            (home.scheme, home.netloc, "/search", urlencode({"q": query, "hl": "en"}), "")
-        )
+    def open_results(
+        self, query: str, start: int = 0, hl: str | None = None, gl: str | None = None
+    ) -> Fetched:
+        """Open the results page for `query` from result `start` on."""
+        return self._search_direct(query, start, hl=hl, gl=gl)
+
+    def google_cookies(self) -> str:
+        """The cookies the browser would send to Google search, as one header."""
+        cookies = self._context.cookies(search_page())
+        return "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+
+    def set_google_cookies(self, header: str, deleted: tuple[str, ...] = ()) -> None:
+        """Take the values in a cookie header, keeping each cookie's attributes,
+        and drop the cookies named in `deleted` that the header does not set."""
+        known = {c["name"]: c for c in self._context.cookies(search_page())}
+        pairs = [p.strip().split("=", 1) for p in header.split(";") if "=" in p]
+        for name in set(deleted) - {name for name, _ in pairs}:
+            self._context.clear_cookies(name=name, domain=".google.com")
+        update = []
+        for name, value in pairs:
+            base = known.get(name)
+            if base is not None and base["value"] == value:
+                continue
+            cookie = dict(base) if base else {"domain": ".google.com", "path": "/", "secure": True}
+            cookie.update(name=name, value=value)
+            cookie.pop("partitionKey", None)
+            update.append(cookie)
+        if update:
+            self._context.add_cookies(update)
+
+    def _search_direct(
+        self, query: str, start: int = 0, hl: str | None = None, gl: str | None = None
+    ) -> Fetched:
+        url = results_url(query, hl or self._hl, gl or self._gl, start)
         mark = time.monotonic()
         response = self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
         # A fresh exit can be shown the consent wall instead of results; clear

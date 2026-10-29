@@ -125,3 +125,111 @@ def test_fallback_does_not_cross_into_the_next_entry():
         '[null,1,[null,null,5,null,"n",null,"/goto?url\u003dNEXT"],["https://next.example/"]]'
     )
     assert resolve_goto(page, "TOK") is None
+
+
+def test_ai_overview_text_without_heading_label_interface_or_script():
+    page = pages.results_page(ai_overview=pages.ai_overview_block())
+    parsed = parse_serp(page)
+    assert parsed["ai_overview"] == {"text": pages.AI_ANSWER}
+    assert len(parsed["organic_results"]) == 3
+
+
+def test_no_ai_overview_is_an_empty_block():
+    assert parse_serp(pages.results_page())["ai_overview"] == {}
+
+
+def test_an_ai_overview_heading_with_no_answer_is_not_a_block():
+    page = pages.results_page(ai_overview=pages.ai_overview_block("Loading"))
+    assert parse_serp(page)["ai_overview"] == {}
+
+
+def test_local_results_read_the_map_pack():
+    parsed = parse_serp(pages.results_page(local=pages.local_pack_block()))
+    first, second = parsed["local_results"]
+    assert first == {
+        "position": 1,
+        "title": "Lane Swim Center",
+        "rating": 4.6,
+        "reviews": 1700,
+        "price": "$$",
+        "type": "Swimming pool",
+        "extensions": ["12 Main St"],
+        "address": "12 Main St",
+        "description": "Clean lanes and friendly staff.",
+    }
+    assert second["reviews"] == 44 and second["type"] == "Gym" and "price" not in second
+    assert second["hours"] == "Open · Closes 9 PM" and "address" not in second
+    # The pack's places are not organic results.
+    assert "Lane Swim Center" not in [r["title"] for r in parsed["organic_results"]]
+
+
+def test_a_page_without_a_map_pack_has_no_local_results():
+    assert parse_serp(pages.results_page())["local_results"] == []
+
+
+def test_place_lines_split_into_address_phone_and_hours():
+    from google_browser_scraper.parse import _place_facts
+
+    lines = [
+        "JFK International Airport, NY · (718) 656-1890",
+        "Open · Closes 1 AM",
+        "Rentals available from US$ 44/day",
+    ]
+    assert _place_facts(lines) == {
+        "address": "JFK International Airport, NY",
+        "phone": "(718) 656-1890",
+        "hours": "Open · Closes 1 AM",
+    }
+    assert _place_facts(["Sunset Blvd 12"]) == {"address": "Sunset Blvd 12"}
+    assert _place_facts(["Pasadena, MD", "Sat: 7 AM–12 PM"])["hours"] == "Sat: 7 AM–12 PM"
+
+
+def test_ai_overview_keeps_label_words_that_are_part_of_the_answer():
+    answer = pages.AI_ANSWER + " Learn more about pacing in the second week."
+    page = pages.results_page(ai_overview=pages.ai_overview_block(answer))
+    text = parse_serp(page)["ai_overview"]["text"]
+    assert text.endswith("Learn more about pacing in the second week.")
+
+
+def test_service_options_are_not_an_address_and_a_bare_rating_has_no_review_count():
+    from google_browser_scraper.parse import _place_facts
+
+    assert _place_facts(["Dine-in \u00b7 Takeout", "12 Main St"]) == {"address": "12 Main St"}
+    lone = pages._place("Solo", "4.6", "1", "", "1 Elm St").replace(
+        '<span class="RDApEe" aria-hidden="true">(1)</span>', ""
+    )
+    place = parse_serp(pages.results_page(local=lone))["local_results"][0]
+    assert place["rating"] == 4.6 and "reviews" not in place
+
+
+def test_a_plain_street_name_is_an_address_but_a_service_option_is_not():
+    from google_browser_scraper.parse import _place_facts
+
+    assert _place_facts(["Broadway", "Open \u00b7 Closes 9 PM"])["address"] == "Broadway"
+    assert "address" not in _place_facts(["Dine-in \u00b7 Takeout"])
+
+
+def test_an_offer_with_a_number_is_not_an_address_and_a_label_in_a_sentence_stays():
+    from google_browser_scraper.parse import _place_facts
+
+    lines = ["Broadway", "Rentals available from US$ 44/day", "12 Main St"]
+    assert _place_facts(lines)["address"] == "12 Main St"
+    assert _place_facts(["J2C6+HC7 Marrakesh"])["address"] == "J2C6+HC7 Marrakesh"
+    answer = pages.AI_ANSWER + " <span>Learn more</span> about pacing in week two."
+    page = pages.results_page(ai_overview=pages.ai_overview_block(answer))
+    assert "Learn more about pacing in week two." in parse_serp(page)["ai_overview"]["text"]
+
+
+def test_ai_overview_leaves_out_the_share_and_feedback_panels():
+    panels = (
+        '<div role="dialog"><span>Thank you</span> See our Privacy Policy. Report a problem</div>'
+        "<div><div>This public link is valid for 7 days.</div><span>Copy link</span>"
+        "<span>Facebook</span></div>"
+        "<div>AI responses may include mistakes. "
+        "For financial advice, consult a professional.</div>"
+    )
+    block = pages.ai_overview_block().replace(
+        "<div>Show more</div>", "<div>Show more</div>" + panels
+    )
+    text = parse_serp(pages.results_page(ai_overview=block))["ai_overview"]["text"]
+    assert text == pages.AI_ANSWER

@@ -22,6 +22,7 @@ import hmac
 import json
 import os
 import queue
+import re
 import sys
 import threading
 from collections.abc import Callable
@@ -176,8 +177,11 @@ class Worker:
         return RuntimeError(f"the scraper is not running ({type(cause).__name__}: {cause})")
 
 
-def search_job(query: str, pages: int) -> Callable[[Scraper], list[dict[str, Any]]]:
+def search_job(
+    query: str, pages: int, hl: str | None = None, gl: str | None = None
+) -> Callable[[Scraper], list[dict[str, Any]]]:
     """A job that runs one query for `pages` pages and leaves the identity open.
+    `hl` and `gl` override the scraper's for this query.
 
     The upkeep the query leaves (a template copy, a restart) is not done here:
     queue `settle_job` once the answer is out, so the caller does not wait for it.
@@ -187,7 +191,8 @@ def search_job(query: str, pages: int) -> Callable[[Scraper], list[dict[str, Any
         saved = scraper.settings.pages
         scraper.settings.pages = pages
         try:
-            return scraper.search(query, settle=False)
+            locale = {k: v for k, v in (("hl", hl), ("gl", gl)) if v}
+            return scraper.search(query, settle=False, **locale)
         except ExitsRefused:
             # Report it to this caller, but let the next request try again.
             scraper.reset_breaker()
@@ -196,6 +201,19 @@ def search_job(query: str, pages: int) -> Callable[[Scraper], list[dict[str, Any
             scraper.settings.pages = saved
 
     return job
+
+
+_HL = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,4})?")
+_GL = re.compile(r"[A-Za-z]{2}")
+
+
+def locale_problem(hl: str | None, gl: str | None) -> str | None:
+    """Why `hl` or `gl` cannot go into Google's URL, if either cannot."""
+    if hl and not _HL.fullmatch(hl):
+        return "hl must be a language code such as en or pt-BR"
+    if gl and not _GL.fullmatch(gl):
+        return "gl must be a two-letter country code such as us"
+    return None
 
 
 def settle_job(scraper: Scraper) -> None:
@@ -232,8 +250,12 @@ def make_handler(worker: Worker, *, api_key: str | None, max_pages: int):
                 return self._send(400, {"error": "pages must be an integer"})
             if not 1 <= pages <= max_pages:
                 return self._send(400, {"error": f"pages must be between 1 and {max_pages}"})
+            hl, gl = params.get("hl") or None, params.get("gl") or None
+            problem = locale_problem(hl, gl)
+            if problem:
+                return self._send(400, {"error": problem})
             try:
-                records = worker.call(search_job(query, pages))
+                records = worker.call(search_job(query, pages, hl, gl))
             except ExitsRefused as exc:
                 return self._send(503, {"error": str(exc)})
             except Exception as exc:

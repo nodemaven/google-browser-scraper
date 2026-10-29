@@ -19,7 +19,62 @@ def _organic(href: str, title: str, cite: str, source: str, snippet: str, date: 
     )
 
 
-def results_page(*, goto: bool = True, with_json: bool = True) -> str:
+AI_ANSWER = (
+    "To start swimming, get comfortable with putting your face in the water and "
+    "blowing bubbles, then practise floating on your front and back. "
+    "Freestyle is the usual first stroke: keep your body horizontal, kick from the hips "
+    "and breathe to the side every two or three strokes."
+)
+
+
+def ai_overview_block(answer: str = AI_ANSWER) -> str:
+    """The shape of Google's AI Overview: a heading, a hidden label, the answer,
+    interface text, and a script that is not part of it."""
+    return (
+        '<div class="CKgc1d"><div class="SGF5Lb"><div><div class="ux3nGb">'
+        '<div role="heading"><strong>AI Overview</strong></div></div></div></div>'
+        '<div><span class="hidden">AI Mode reply for swimming</span>'
+        f"<div><span>{answer}</span></div>"
+        "<script>var notText = 1;</script>"
+        "<div>AI responses may include mistakes. <a>Learn more</a></div>"
+        "<div>Show more</div></div></div>"
+    )
+
+
+def _place(name: str, stars: str, count: str, facts: str, address: str, quote: str = "") -> str:
+    rating = (
+        f'<span class="Y0A0hc" aria-label="Rated {stars} out of 5, {count} user reviews" '
+        f'role="img"><span class="yi40Hd" aria-hidden="true">{stars}</span>'
+        '<span aria-hidden="true" role="img" aria-label="Rated"><span></span></span>'
+        f'<span class="RDApEe" aria-hidden="true">({count})</span></span>'
+    )
+    said = f'<div class="pJ3Ci"><span>"{quote}"</span></div>' if quote else ""
+    return (
+        '<div class="VkpGBb"><div class="rllt__details">'
+        f'<div class="dbg0pd" aria-level="3" role="heading"><span>{name}</span></div>'
+        f"<div><span>{rating}</span>{facts}</div><div>{address}</div>{said}</div></div>"
+    )
+
+
+def local_pack_block() -> str:
+    return (
+        '<div class="Qq3Lb"><div role="heading">Places</div>'
+        + _place(
+            "Lane Swim Center",
+            "4.6",
+            "1.7K",
+            " · $$ · Swimming pool",
+            "12 Main St",
+            "Clean lanes and friendly staff.",
+        )
+        + _place("City Aquatics", "4.1", "44", " · Gym", "Open ⋅ Closes 9 PM")
+        + "</div>"
+    )
+
+
+def results_page(
+    *, goto: bool = True, with_json: bool = True, ai_overview: str = "", local: str = ""
+) -> str:
     first = f"/goto?url={GOTO_A}" if goto else "https://www.usms.org/guide"
     organic = [
         _organic(
@@ -74,7 +129,8 @@ def results_page(*, goto: bool = True, with_json: bool = True) -> str:
     return (
         "<html><head><title>swimming - Google Search</title></head><body>"
         '<div id="result-stats">About 1,230,000 results (0.42 seconds)</div>'
-        f'<div id="search">{ad}<div id="rso">{"".join(organic[:1])}{paa}{"".join(organic[1:])}'
+        f'<div id="search">{ai_overview}{local}{ad}'
+        f'<div id="rso">{"".join(organic[:1])}{paa}{"".join(organic[1:])}'
         f"</div></div>{related}{nav}{script}</body></html>"
     )
 

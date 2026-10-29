@@ -30,6 +30,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
+from .hybrid import Headers
 from .scraper import Breaker, ExitsRefused, Scraper, Stats, Templates
 
 MAX_WORKERS = 16
@@ -98,8 +99,9 @@ class Pool:
                 )
         templates = Templates(first.clones, first.clone_max_age, first.clone_refusals)
         breaker = Breaker(first.breaker)
+        headers = Headers()
         for scraper in self._scrapers:
-            scraper.share(breaker, templates)
+            scraper.share(breaker, templates, headers)
         threads = [
             threading.Thread(
                 target=self._work,
@@ -177,6 +179,8 @@ def merge_stats(parts: Iterable[Stats]) -> Stats:
             "queries_failed",
             "exits_refused",
             "exits_unreachable",
+            "exits_poisoned",
+            "pages_http",
             "bytes_total",
             "bytes_warm",
             "links_resolved",

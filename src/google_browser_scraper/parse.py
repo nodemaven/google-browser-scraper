@@ -2,6 +2,13 @@
 
 Field names follow the usual SERP API JSON.
 
+`ai_overview` is the AI Overview's text when the page carries one; its source
+links are loaded by script after the page and are not part of it.
+
+`local_results` are the places in the map pack of a local query: name, rating,
+review count, and the lines Google prints under them (price, type, address,
+hours, a quoted review).
+
 Google wraps every result link in an encrypted `/goto?url=...` redirect. Some
 pages still pair each token with its destination in their inline JSON, so the
 parser tries that first; a link it cannot find keeps its `redirect_link`, and
@@ -10,6 +17,7 @@ parser tries that first; a link it cannot find keeps its `redirect_link`, and
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from typing import Any
@@ -37,6 +45,8 @@ def parse_serp(page: str, *, base_url: str = GOOGLE) -> dict[str, Any]:
         "related_questions": _related_questions(root),
         "related_searches": _related_searches(root, base_url),
         "pagination": _pagination(root, base_url),
+        "ai_overview": _ai_overview(root),
+        "local_results": _local_results(root),
     }
 
 
@@ -167,6 +177,255 @@ def _ads(root, base_url: str) -> list[dict[str, Any]]:
             ad["source"] = displayed.get("data-dtld")
         ads.append(ad)
     return ads
+
+
+# Interface text inside the AI Overview block, not part of the answer.
+_AI_CHROME = (
+    "AI responses may include mistakes.",
+    "Learn more",
+    "Show more",
+    "Show all",
+    "Dive deeper in AI Mode",
+    "Thank you",
+    "Your feedback helps Google improve.",
+    # The share panel.
+    "Share public link",
+    "Copy link",
+    "Link copied",
+    "Copied to clipboard",
+    "Failed to copy to clipboard. Try again later.",
+    "Can’t copy the link right now. Try again later.",
+    "Facebook",
+    "Gmail",
+    "Reddit",
+    "WhatsApp",
+    "LinkedIn",
+)
+_AI_MIN_TEXT = 200
+
+
+def _ai_overview(root) -> dict[str, Any]:
+    """The AI Overview's text, or {} when the page has none.
+
+    Found by its visible "AI Overview" heading rather than by class names, which
+    Google renames: the block is the nearest ancestor of the heading that holds
+    real text. Source links load later by script and are not in the page.
+    """
+    heading = next(
+        (
+            el
+            for el in root.iter()
+            if isinstance(el.tag, str)
+            and el.tag not in ("script", "style")
+            and (el.text or "").strip() == "AI Overview"
+        ),
+        None,
+    )
+    if heading is None:
+        return {}
+    block = heading
+    for _ in range(10):
+        block = block.getparent()
+        # An ancestor holding a result link (an anchor around a heading) is past
+        # the block: stopping there keeps an empty overview from borrowing the
+        # results' text.
+        if block is None or block.xpath(".//a[.//h3]"):
+            return {}
+        if len(_visible_text(block)) >= _AI_MIN_TEXT:
+            break
+    else:
+        return {}
+    text = _visible_text(block, skip_label=True)
+    text = text.removeprefix("AI Overview").strip()
+    return {"text": text} if len(text) >= _AI_MIN_TEXT else {}
+
+
+_RATING = re.compile(r"(\d+(?:[.,]\d+)?)")
+_COUNT = re.compile(r"\(?\s*([\d.,]+)\s*([KkMm]?)\s*\)?")
+
+
+def _count(text: str) -> int | None:
+    """ "(1.7K)" -> 1700, "(44)" -> 44."""
+    found = _COUNT.fullmatch(text.strip())
+    if not found:
+        return None
+    number, unit = found.groups()
+    scale = {"k": 1_000, "m": 1_000_000}.get(unit.lower(), 1)
+    try:
+        if scale > 1:
+            return round(float(number.replace(",", ".")) * scale)
+        return int(number.replace(",", "").replace(".", ""))
+    except ValueError:
+        return None
+
+
+_PHONE = re.compile(r"\+?[\d\s().-]{7,}")
+_HOURS = re.compile(
+    r"^(open|closed|closes|opens|temporarily closed)\b"
+    r"|^(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thu(rs?)?|fri|sat|sun)\b"
+    r"|\b\d{1,2}(:\d{2})?\s?(am|pm)\b",
+    re.IGNORECASE,
+)
+
+
+#: An address starts with a house number or carries a comma or a plus code
+#: ("1435 Broadway", "Brooklyn, NY", "J2C6+HC7"); service options ("Dine-in")
+#: and offers ("Rentals available from US$ 44/day") do not.
+_ADDRESS_LIKE = re.compile(r"^\d|,|\b[2-9C-X]{4}\+[2-9C-X]{2,3}\b")
+#: What Google lists next to a place instead of an address.
+_SERVICE_OPTIONS = frozenset(
+    {
+        "dine-in",
+        "takeout",
+        "delivery",
+        "curbside pickup",
+        "no-contact delivery",
+        "in-store shopping",
+        "in-store pickup",
+        "onsite services",
+        "online appointments",
+        "drive-through",
+    }
+)
+
+
+def _place_facts(lines: list[str]) -> dict[str, str]:
+    """Address, phone and hours out of the lines under a place's name.
+
+    A line holds one or more facts joined by middle dots ("Brooklyn, NY",
+    "Open · Closes 11 PM · (646) 688-0366"). The address is the first fact that
+    looks like one and is neither a phone number nor opening hours; anything
+    else stays in `extensions` only.
+    """
+    facts: dict[str, str] = {}
+    hours: list[str] = []
+    plain: str | None = None  # first fact without a number or a comma
+    for line in lines:
+        for part in (p.strip() for p in re.split("[·⋅]", line)):
+            if not part:
+                continue
+            digits = sum(c.isdigit() for c in part)
+            if "phone" not in facts and _PHONE.fullmatch(part) and digits >= 7:
+                facts["phone"] = part
+            elif _HOURS.search(part):
+                hours.append(part)
+            elif "address" not in facts and _ADDRESS_LIKE.search(part):
+                facts["address"] = part
+            elif plain is None and line is lines[0] and part.lower() not in _SERVICE_OPTIONS:
+                plain = part
+    if "address" not in facts and plain is not None:
+        facts["address"] = plain  # "Broadway", "Central Park"
+    if hours:
+        facts["hours"] = " · ".join(hours)
+    return facts
+
+
+def _local_results(root) -> list[dict[str, Any]]:
+    """The map pack's places, in the order shown.
+
+    Each place's details sit in one `rllt__details` block: a heading with the
+    name, then a line per fact. The rating carries a `role=img` label; the line
+    it sits on also holds the price and the type, joined by middle dots.
+    """
+    places: list[dict[str, Any]] = []
+    for details in root.xpath("//*[contains(concat(' ', @class, ' '), ' rllt__details ')]"):
+        heading = _first(details, ".//*[@role='heading']")
+        if heading is None:
+            continue
+        place: dict[str, Any] = {"position": len(places) + 1, "title": _text(heading)}
+        rating = _first(details, ".//*[@role='img'][@aria-label]")
+        lines = [line for line in details.xpath("./div") if line is not heading]
+        for line in lines:
+            if rating is not None and rating in line.iterdescendants():
+                stars = _first(rating, "./span[1]")
+                found = _RATING.search(_text(stars) if stars is not None else "")
+                if found:
+                    place["rating"] = float(found.group(1).replace(",", "."))
+                # The review count is the span in brackets; a rating can have
+                # none, and the star value alone must not be read as one.
+                count = next((s for s in rating.xpath("./span") if _text(s).startswith("(")), None)
+                reviews = _count(_text(count)) if count is not None else None
+                if reviews is not None:
+                    place["reviews"] = reviews
+                parts = [p.strip() for p in _text(line).split("·")][1:]
+                parts = [p for p in parts if p]
+                if len(parts) >= 2:
+                    place["price"] = parts[0]
+                if parts:
+                    place["type"] = parts[-1]
+            elif "pJ3Ci" in (line.get("class") or "").split():
+                quote = _text(line).strip(' "“”')
+                if quote:
+                    place["description"] = quote
+            else:
+                text = _text(line)
+                if text:
+                    place.setdefault("extensions", []).append(text)
+        place.update(_place_facts(place.get("extensions", [])))
+        places.append(place)
+    return places
+
+
+_BLOCKS = frozenset({"div", "p", "button", "li", "ul", "section", "footer", "g-more-link"})
+
+
+def _stands_alone(el) -> bool:
+    """Whether an element is not part of a sentence: a block of its own, or an
+    inline element whose parent holds no text besides it (or only labels)."""
+    if el.tag in _BLOCKS or el.get("role") == "button":
+        return True
+    parent = el.getparent()
+    if parent is None or _only_chrome(parent):
+        return True
+    return " ".join(parent.text_content().split()) == " ".join(el.text_content().split())
+
+
+def _only_chrome(el) -> bool:
+    """Whether an element's text is nothing but the AI Overview's own labels."""
+    rest = " ".join(el.text_content().split())
+    if not rest:
+        return False
+    for chrome in _AI_CHROME:
+        rest = rest.replace(chrome, "")
+    return not rest.strip(" .")
+
+
+_HIDDEN_PARTS = (
+    ".//*[@role='dialog' or @role='status' or @role='menu' or @role='alert' or @role='tooltip']"
+    # The notice under the answer, in its variants ("... For financial advice,
+    # consult a professional."), and the share panel's terms.
+    " | .//*[starts-with(normalize-space(text()), 'AI responses may include mistakes')]"
+    " | .//*[starts-with(normalize-space(text()), 'This public link is valid')]"
+)
+
+
+def _visible_text(el, *, skip_label: bool = False) -> str:
+    """Text of an element without scripts, styles and (optionally) the hidden
+    "AI Mode reply for ..." label Google puts before the answer."""
+    el = copy.deepcopy(el)
+    for node in el.xpath(".//script|.//style"):
+        node.drop_tree()
+    if skip_label:
+        for node in el.xpath(".//*[starts-with(normalize-space(text()), 'AI Mode reply for')]"):
+            node.drop_tree()
+        # Panels the block opens on demand - sharing, feedback, a "copied"
+        # notice - are dialogs, menus and status lines. Hidden parts are not
+        # dropped: the answer behind "Show more" is hidden too.
+        for node in el.xpath(_HIDDEN_PARTS):
+            if node.getparent() is not None:
+                node.drop_tree()
+        # The block's own buttons and notices, dropped only where an element
+        # holds nothing else: the same words inside the answer stay.
+        labels = [
+            node
+            for node in el.iter()
+            if isinstance(node.tag, str) and _only_chrome(node) and _stands_alone(node)
+        ]
+        for node in labels:
+            if node.getparent() is not None:
+                node.drop_tree()
+    # Text nodes joined with a space: block elements carry no separator of their own.
+    return " ".join(" ".join(el.itertext()).split())
 
 
 def _related_questions(root) -> list[dict[str, str]]:
