@@ -189,3 +189,14 @@ def test_ai_overview_keeps_label_words_that_are_part_of_the_answer():
     page = pages.results_page(ai_overview=pages.ai_overview_block(answer))
     text = parse_serp(page)["ai_overview"]["text"]
     assert text.endswith("Learn more about pacing in the second week.")
+
+
+def test_service_options_are_not_an_address_and_a_bare_rating_has_no_review_count():
+    from google_browser_scraper.parse import _place_facts
+
+    assert _place_facts(["Dine-in \u00b7 Takeout", "12 Main St"]) == {"address": "12 Main St"}
+    lone = pages._place("Solo", "4.6", "1", "", "1 Elm St").replace(
+        '<span class="RDApEe" aria-hidden="true">(1)</span>', ""
+    )
+    place = parse_serp(pages.results_page(local=lone))["local_results"][0]
+    assert place["rating"] == 4.6 and "reviews" not in place

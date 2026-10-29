@@ -417,6 +417,10 @@ class HybridSession:
             self._end_series("empty")
             return None
         self._series += 1
+        if self._series == GOOD_SERIES:
+            # A long series clears the run's count of exits that stepped back,
+            # even when it never ends in a check (a capped or retired exit).
+            self._headers.worked()
         self.http_pages += 1
         self._last_source = "http"
         self._last = (query, page, html)

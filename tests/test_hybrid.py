@@ -360,3 +360,14 @@ def test_a_failed_launch_releases_the_netlog_capture():
 def test_a_query_word_must_start_a_title_word():
     assert quality.relevance("cat", ["Education policy"]) == 0.0
     assert quality.relevance("cat", ["Cat toys for kittens"]) == 1.0
+
+
+def test_a_long_series_clears_the_runs_streak_before_it_ends():
+    headers = Headers()
+    headers.request = REQUEST
+    headers.stepped_back(), headers.stepped_back()
+    client = Client([Response(SERVED.html)] * hybrid.GOOD_SERIES)
+    s, _ = session(client, headers=headers)
+    for i in range(hybrid.GOOD_SERIES):
+        s.search(f"query {i}", direct=True)
+    assert headers.streak == 0

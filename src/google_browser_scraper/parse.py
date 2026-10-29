@@ -256,13 +256,18 @@ _HOURS = re.compile(
 )
 
 
+#: An address carries a number or a comma ("1435 Broadway", "Brooklyn, NY",
+#: a plus code); service options ("Dine-in", "Takeout") carry neither.
+_ADDRESS_LIKE = re.compile(r"[\d,]")
+
+
 def _place_facts(lines: list[str]) -> dict[str, str]:
     """Address, phone and hours out of the lines under a place's name.
 
     A line holds one or more facts joined by middle dots ("Brooklyn, NY",
     "Open · Closes 11 PM · (646) 688-0366"). The address is the first fact that
-    is neither a phone number nor opening hours; anything else stays in
-    `extensions` only.
+    looks like one and is neither a phone number nor opening hours; anything
+    else stays in `extensions` only.
     """
     facts: dict[str, str] = {}
     hours: list[str] = []
@@ -275,7 +280,7 @@ def _place_facts(lines: list[str]) -> dict[str, str]:
                 facts["phone"] = part
             elif _HOURS.search(part):
                 hours.append(part)
-            elif "address" not in facts and line is lines[0]:
+            elif "address" not in facts and _ADDRESS_LIKE.search(part):
                 facts["address"] = part
     if hours:
         facts["hours"] = " · ".join(hours)
@@ -303,7 +308,9 @@ def _local_results(root) -> list[dict[str, Any]]:
                 found = _RATING.search(_text(stars) if stars is not None else "")
                 if found:
                     place["rating"] = float(found.group(1).replace(",", "."))
-                count = _first(rating, "./span[last()]")
+                # The review count is the span in brackets; a rating can have
+                # none, and the star value alone must not be read as one.
+                count = next((s for s in rating.xpath("./span") if _text(s).startswith("(")), None)
                 reviews = _count(_text(count)) if count is not None else None
                 if reviews is not None:
                     place["reviews"] = reviews

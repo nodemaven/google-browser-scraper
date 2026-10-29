@@ -155,7 +155,8 @@ The schema uses the field names common to SERP APIs: `organic_results`, `ads`,
 simple consumers can often switch with minimal mapping. `ai_overview` holds the
 text of Google's AI Overview when the page shows one, and `local_results` the
 places of the map pack on local queries (name, rating, reviews, type, address,
-phone, opening hours).
+phone, opening hours). The AI Overview is found by its English heading, so it is read
+on pages in English (`--hl en`, the default).
 Knowledge panels, shopping, images and other special blocks are not parsed.
 
 Each record also has an `exit` block: which proxy session answered and how many
