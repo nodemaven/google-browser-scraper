@@ -225,7 +225,8 @@ def test_ai_overview_leaves_out_the_share_and_feedback_panels():
         '<div role="dialog"><span>Thank you</span> See our Privacy Policy. Report a problem</div>'
         "<div><div>This public link is valid for 7 days.</div><span>Copy link</span>"
         "<span>Facebook</span></div>"
-        "<div>AI responses may include mistakes. For financial advice, consult a professional.</div>"
+        "<div>AI responses may include mistakes. "
+        "For financial advice, consult a professional.</div>"
     )
     block = pages.ai_overview_block().replace(
         "<div>Show more</div>", "<div>Show more</div>" + panels
