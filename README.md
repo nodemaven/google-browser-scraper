@@ -15,7 +15,7 @@
 
 <a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="Google Browser Scraper on DevHunt" height="44"></a>
 
-[Quickstart](#quickstart) · [Output](#what-you-get) · [HTTP API](#run-it-as-an-api) · [MCP](#use-it-from-an-ai-agent-mcp) · [Docker](#docker) · [How it works](#how-it-works) · [Options](#options)
+[Quickstart](#quickstart) · [Output](#what-you-get) · [Poisoned results](#poisoned-results-protection) · [HTTP API](#run-it-as-an-api) · [MCP](#use-it-from-an-ai-agent-mcp) · [Docker](#docker) · [How it works](#how-it-works) · [Options](#options)
 
 </div>
 
@@ -25,39 +25,86 @@
   <img src="https://raw.githubusercontent.com/nodemaven/google-browser-scraper/main/assets/demo.gif" alt="A real Chrome window showing Google results next to the JSON the scraper produced for them" width="900">
 </p>
 
-**Latest version benchmarks (v0.1):**
+<div align="center">
 
-- 100% success rate
-- 0.4 MB per search
-- 1.4 seconds per search on a warm exit
+| ✅ **100%** | 📉 **0.4 MB** | ⚡ **1.4 s** |
+|:---:|:---:|:---:|
+| success rate | per search | per search on a warm exit |
+
+<sub>Latest version benchmarks (v0.1)</sub>
+
+</div>
 
 Scrape Google search results (SERP) with a real Chrome browser and your own
 residential proxy, and get clean JSON back. Use it as a CLI, a Python library,
 a local HTTP API, or an MCP server that gives AI agents live Google search.
 
-Plain HTTP is no longer a reliable way to scrape Google: it often expects a
-browser that runs JavaScript, and a fresh browser on a fresh proxy exit can be
-refused quickly. This tool takes a browser path instead. It warms a sticky proxy
-session with ordinary browsing, opens Google's results page for each query in
-that browser, checks whether Google served results or refused, and writes one
-JSON record per results page. Captchas, blocks and failures are reported as
-such, never as "no results".
-
-Once Google trusts the browser, results pages come over direct HTTPS requests
-with the browser's own cookies and headers, and the browser runs only for
-Google's checks. A page fetched that way costs a fraction of the traffic.
+Plain HTTP is no longer a reliable way to scrape Google, and a fresh browser on a
+fresh proxy exit is refused quickly. So the scraper warms a sticky proxy session
+with ordinary browsing, lets the browser pass Google's checks, and then fetches
+results pages directly over HTTPS with the browser's own cookies. Captchas and
+blocks are reported as such, never as "no results".
 
 ## Features
 
-- **Real browser scraping:** real Chrome via Patchright, with a warm-up before every new identity
-- **Low traffic:** results pages over HTTP with the browser's cookies between Google's checks; the browser takes over by itself when that stops working
-- **Bring your own proxy:** any residential proxy with sticky sessions, built-in [NodeMaven](https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=features) support
-- **SERP API alternative:** JSON with `organic_results`, `ads`, `related_questions`, `related_searches`, `pagination`, `ai_overview` and `local_results`
-- **Poisoned results protection:** pages of results for some other query are caught and never returned; the query is asked again on a fresh exit
-- **Honest failures:** captchas and blocks come back labeled, not as empty results
-- **Cost tracking:** bytes per page and cost per 1000 pages in every run summary
-- **Four ways to run it:** CLI, Python library, HTTP API, MCP server for AI agents
-- **Docker image** for self-hosted deployment
+<table>
+<tr>
+<td width="50%" valign="top">
+
+⚡ **Hybrid mode**<br>
+Results pages over HTTPS between Google's checks: a fraction of a browser's traffic and time. The browser takes over by itself when needed.
+
+</td>
+<td width="50%" valign="top">
+
+🛡️ **Poisoned results protection**<br>
+Pages of results for some other query are caught and never returned; the query is asked again on a fresh exit.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+🌐 **Real browser**<br>
+Real Chrome via Patchright, warmed up before every new identity, so Google's checks pass.
+
+</td>
+<td valign="top">
+
+🧩 **SERP API-style JSON**<br>
+`organic_results`, `ads`, `related_questions`, `related_searches`, `pagination`, `ai_overview`, `local_results`.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+🔌 **Bring your own proxy**<br>
+Any residential proxy with sticky sessions, built-in [NodeMaven](https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=features) support.
+
+</td>
+<td valign="top">
+
+🚦 **Honest failures**<br>
+Captchas and blocks come back labeled, not as empty results.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+🤖 **For AI agents**<br>
+An MCP server that gives agents live Google search, with the AI Overview and map places.
+
+</td>
+<td valign="top">
+
+🐳 **Run it your way**<br>
+CLI, Python library, HTTP API, MCP server or Docker image. Traffic and cost per 1000 pages in every run summary.
+
+</td>
+</tr>
+</table>
 
 ## Use cases
 
@@ -75,8 +122,9 @@ patchright install chromium
 
 ## Quickstart
 
-You need a residential proxy with **sticky sessions**. Put `{session}` where
-your provider expects a session id in the username:
+> [!NOTE]
+> You need a residential proxy with **sticky sessions**. Put `{session}` where
+> your provider expects a session id in the username.
 
 ```bash
 google-browser-scraper search "best running shoes" \
@@ -84,13 +132,13 @@ google-browser-scraper search "best running shoes" \
   -o results.jsonl
 ```
 
-The first query takes a few minutes, because a new exit is warmed up first, and
-the warm-up costs noticeably more traffic than a search. Later queries on the
-same exit take seconds. A summary of pages served and traffic used, with the
-hosts that took most of it, is printed at the end of every run.
+The first query takes a few minutes while a new exit warms up; later queries on
+the same exit take seconds. Every run ends with a summary of pages served and
+traffic used.
 
-With [NodeMaven](https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=proxy_setup) residential proxies, the
-session id is handled for you and the credentials come from the environment:
+### With NodeMaven
+
+The session id is handled for you and the credentials come from the environment:
 
 ```bash
 pip install "google-browser-scraper[nodemaven]"
@@ -101,17 +149,27 @@ google-browser-scraper search -f queries.txt --nodemaven --country us -o results
 > [!TIP]
 > 🎁 **2 GB of free traffic.** No NodeMaven account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=signup_promo) and enter the code **GOOGLENM**. Once per account.
 
-To cap a run's traffic, `--nodemaven-demo` creates a sub-user with a traffic limit
-from your dashboard API key, shares it across workers, and deletes it when the run
-ends (`--keep-subuser` keeps it). The account needs sub-users enabled. A fresh
-warm-up alone uses about 60 MB, so keep the cap well above that:
+<details>
+<summary><b>Cap a run's traffic with a demo sub-user</b></summary>
+
+<br>
+
+`--nodemaven-demo` creates a sub-user with a traffic limit from your dashboard API
+key, shares it across workers, and deletes it when the run ends (`--keep-subuser`
+keeps it). The account needs sub-users enabled. A fresh warm-up alone uses about
+60 MB, so keep the cap well above that:
 
 ```bash
 export NODEMAVEN_API_KEY=...
 google-browser-scraper search -f queries.txt --nodemaven-demo --traffic-limit-mb 300 -o results.jsonl
 ```
 
-To try it without a proxy, use your own connection:
+</details>
+
+<details>
+<summary><b>Try it without a proxy</b></summary>
+
+<br>
 
 ```bash
 google-browser-scraper search "best running shoes" --no-proxy
@@ -121,7 +179,9 @@ Google then sees one address for every query, so it starts answering with
 captchas sooner than it would across a pool of exits. Those pages come back as
 `captcha` in `page_verdict`, not as empty results.
 
-From Python:
+</details>
+
+### From Python
 
 ```python
 from google_browser_scraper import ProxyTemplate, Scraper, Settings
@@ -138,34 +198,38 @@ One JSON object per results page:
 
 ```json
 {
-  "search_metadata": {"status": "Success", "page_verdict": "ok"},
+  "search_metadata": {"status": "Success", "page_verdict": "ok", "fetched_with": "http"},
   "search_parameters": {"engine": "google", "q": "best running shoes", "page": 1},
   "organic_results": [
     {"position": 1, "title": "...", "link": "https://...", "snippet": "..."}
   ],
   "related_questions": [{"question": "..."}],
+  "ai_overview": {"text": "..."},
   "exit": {"session": "...", "queries_on_exit": 1, "bytes": "..."}
 }
 ```
 
-The schema uses the field names common to SERP APIs: `organic_results`, `ads`,
-`related_questions`, `related_searches`, `pagination` and `search_metadata`, so
-simple consumers can often switch with minimal mapping. `ai_overview` holds the
-text of Google's AI Overview when the page shows one, and `local_results` the
-places of the map pack on local queries (name, rating, reviews, type, address,
-phone, opening hours). The AI Overview is found by its English heading, so it is read
-on pages in English (`--hl en`, the default).
-Knowledge panels, shopping, images and other special blocks are not parsed.
+The field names are the ones common to SERP APIs, so simple consumers can often
+switch with minimal mapping.
 
-Each record also has an `exit` block: which proxy session answered and how many
-bytes the page cost. `search_metadata.fetched_with` is `http` or `browser`.
-`search_metadata.timings` says where the page's time went, in seconds per step
-(`http` for a page fetched over HTTP; `type`, `load`, `ready` and `read` for one
-the browser rendered; `parse`; and `links`, which overlaps the next query and is
-not part of `total_time_taken`). A query that
-failed is a record too, with an `error`. `--format csv` writes the organic
-results as a table, and `--price-per-gb` adds the cost per 1000 pages to the
-summary.
+<details>
+<summary><b>All fields</b></summary>
+
+<br>
+
+- `organic_results`, `ads`, `related_questions`, `related_searches`, `pagination`, `search_metadata`
+- `ai_overview`: the text of Google's AI Overview when the page shows one (pages in English, `--hl en`, the default)
+- `local_results`: the places of the map pack on local queries (name, rating, reviews, type, address, phone, opening hours)
+- `exit`: which proxy session answered and how many bytes the page cost
+- `search_metadata.fetched_with`: `http` or `browser`
+- `search_metadata.timings`: seconds per step (`http` for a page fetched over HTTP; `type`, `load`, `ready` and `read` for one the browser rendered; `parse`; `links`, which overlaps the next query)
+- A query that failed is a record too, with an `error`
+
+Knowledge panels, shopping, images and other special blocks are not parsed.
+`--format csv` writes the organic results as a table, and `--price-per-gb` adds
+the cost per 1000 pages to the summary.
+
+</details>
 
 ## Poisoned results protection
 
@@ -175,8 +239,10 @@ slips into your pipeline unnoticed.
 
 The scraper checks every results page against the query it asked. When an exit
 starts returning unrelated results, it is dropped and the query is asked again on
-a fresh one, so poisoned pages never reach your output. The check runs on the
-page already downloaded: no extra requests, no extra traffic. On by default.
+a fresh one, so poisoned pages never reach your output.
+
+- No extra requests, no extra traffic: the check runs on the page already downloaded
+- On by default
 
 ## Run it as an API
 
@@ -185,14 +251,11 @@ google-browser-scraper serve --nodemaven --country us --prewarm
 curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 ```
 
-Same record format as above. `hl` (language, e.g. `de`) and `gl` (country,
-e.g. `at`) can be set per request: `/search.json?q=...&hl=de&gl=at`. Requests
-run one at a time on one held identity.
-`--prewarm` searches once at startup, moving to a new exit until Google serves
-one, so a request sent after it does not wait for a warm-up. `/health` answers
-503 `warming` until then; a request sent earlier waits in line behind it. Set
-`GBS_API_KEY` to require a key; without one the server only listens on
-localhost.
+- Same record format as above
+- `hl` (language) and `gl` (country) per request: `/search.json?q=...&hl=de&gl=at`
+- `--prewarm` finds a served exit at startup, so the first request does not wait for a warm-up; `/health` answers 503 `warming` until then
+- Requests run one at a time on one held identity
+- Set `GBS_API_KEY` to require a key; without one the server only listens on localhost
 
 ## Use it from an AI agent (MCP)
 
@@ -208,9 +271,9 @@ localhost.
 }
 ```
 
-It exposes one tool, `google_search(query, pages, hl, gl)`. The answer carries
-the organic results, "People also ask", related searches, and the AI Overview and
-map places when Google shows them.
+One tool, `google_search(query, pages, hl, gl)`. It returns the organic results,
+"People also ask", related searches, and the AI Overview and map places when
+Google shows them.
 
 ## Docker
 
@@ -229,16 +292,14 @@ To build it yourself: `docker build -t google-browser-scraper .`
 
 1. **New identity:** a sticky proxy session and a fresh browser profile.
 2. **Warm-up:** a few ordinary pages, staying on each for 20-45 seconds.
-3. **Search:** an exit's first query opens Google's results page in the
-   browser. Once Google serves it, the following results pages are fetched
-   over HTTP with the browser's cookies and headers, until Google asks for its
-   check again; the browser then runs one query, passes it, and HTTP carries on
-   with the fresh cookies.
-4. **Check before parsing:** the page is classified first, so a captcha or a
-   block is reported as one and never parsed as an empty result.
-5. **Keep or drop:** an exit Google answers is reused for the next queries; an
-   exit it refuses is dropped and the query is retried on a new one. If exit
-   after exit is refused, the run stops instead of spending more traffic.
+3. **Search:** the first query on an exit goes through the browser. Once Google
+   serves it, the next pages come over HTTPS with the browser's cookies, until
+   Google asks for its check again.
+4. **Check before parsing:** a captcha or a block is reported as one, never
+   parsed as an empty result.
+5. **Keep or drop:** an exit Google answers is reused; one it refuses is dropped
+   and the query retried on a new one. If exit after exit is refused, the run
+   stops instead of spending more traffic.
 
 <details>
 <summary><b>More detail: HTTP between checks, holding exits, copied cookies, result links, traffic</b></summary>
