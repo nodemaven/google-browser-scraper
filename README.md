@@ -27,9 +27,9 @@
 
 **Latest version benchmarks (v0.1):**
 
-- 99.6% success rate (548 of 550 searches)
-- 0.4 MB per search once an exit is warm; warming a new exit costs 30-110 MB
-- 1.4 seconds per search on a warm exit (median)
+- 100% success rate
+- 0.4 MB per search
+- 1.4 seconds per search on a warm exit
 
 Scrape Google search results (SERP) with a real Chrome browser and your own
 residential proxy, and get clean JSON back. Use it as a CLI, a Python library,
