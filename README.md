@@ -43,12 +43,9 @@ that browser, checks whether Google served results or refused, and writes one
 JSON record per results page. Captchas, blocks and failures are reported as
 such, never as "no results".
 
-Once Google serves the browser, most results pages come over direct HTTPS
-requests with the browser's own cookies and request headers, and the browser
-runs only when Google asks for its check again or a request does not bring a
-usable page. A results page fetched that way is a single
-document instead of a fully rendered page, so it costs a fraction of the
-traffic.
+Once Google trusts the browser, results pages come over direct HTTPS requests
+with the browser's own cookies and headers, and the browser runs only for
+Google's checks. A page fetched that way costs a fraction of the traffic.
 
 ## Features
 
@@ -236,20 +233,13 @@ To build it yourself: `docker build -t google-browser-scraper .`
 
 <br>
 
-**HTTP between checks.** The request headers come from Chromium itself: once per
-run, the first served browser search is recorded in a Chromium NetLog and its
-headers are reused in Chromium's order, through `curl_cffi` with Chrome's TLS and
-HTTP/2 fingerprint, on the same exit and the same counting relay. When the HTTP
-side stops getting pages (several short runs between checks in a row, errors, or
-pages that parse to nothing, which is what a change in Google's markup looks
-like), that exit goes back to the browser; when several exits in a row do, the
-whole run does. `--no-hybrid` uses the browser for every page.
+**HTTP between checks.** After the browser passes Google's check, results pages
+are fetched over HTTPS with the browser's own headers and cookies. If that stops
+working, the scraper goes back to the browser on its own. `--no-hybrid` uses the
+browser for every page.
 
-**Unrelated results.** Google is reported to answer some automated traffic with
-a normal-looking page of results for other queries instead of a block. When three
-pages in a row on one exit have almost no title that carries the query's words,
-the exit is dropped and the query asked again on a new one. One-word queries are
-not judged.
+**Unrelated results.** An exit that starts returning results unrelated to the
+queries is dropped, and the query is asked again on a new one.
 
 **Holding exits.** A served exit is kept for up to 300 queries. Every new exit
 pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 50
