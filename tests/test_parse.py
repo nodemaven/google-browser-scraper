@@ -141,3 +141,41 @@ def test_no_ai_overview_is_an_empty_block():
 def test_an_ai_overview_heading_with_no_answer_is_not_a_block():
     page = pages.results_page(ai_overview=pages.ai_overview_block("Loading"))
     assert parse_serp(page)["ai_overview"] == {}
+
+
+def test_local_results_read_the_map_pack():
+    parsed = parse_serp(pages.results_page(local=pages.local_pack_block()))
+    first, second = parsed["local_results"]
+    assert first == {
+        "position": 1,
+        "title": "Lane Swim Center",
+        "rating": 4.6,
+        "reviews": 1700,
+        "price": "$$",
+        "type": "Swimming pool",
+        "extensions": ["12 Main St"],
+        "address": "12 Main St",
+        "description": "Clean lanes and friendly staff.",
+    }
+    assert second["reviews"] == 44 and second["type"] == "Gym" and "price" not in second
+    assert second["hours"] == "Open · Closes 9 PM" and "address" not in second
+    # The pack's places are not organic results.
+    assert "Lane Swim Center" not in [r["title"] for r in parsed["organic_results"]]
+
+
+def test_a_page_without_a_map_pack_has_no_local_results():
+    assert parse_serp(pages.results_page())["local_results"] == []
+
+
+def test_place_lines_split_into_address_phone_and_hours():
+    from google_browser_scraper.parse import _place_facts
+
+    lines = ["JFK International Airport, NY · (718) 656-1890", "Open · Closes 1 AM",
+             "Rentals available from US$ 44/day"]
+    assert _place_facts(lines) == {
+        "address": "JFK International Airport, NY",
+        "phone": "(718) 656-1890",
+        "hours": "Open · Closes 1 AM",
+    }
+    assert _place_facts(["Sunset Blvd 12"]) == {"address": "Sunset Blvd 12"}
+    assert _place_facts(["Pasadena, MD", "Sat: 7 AM–12 PM"])["hours"] == "Sat: 7 AM–12 PM"

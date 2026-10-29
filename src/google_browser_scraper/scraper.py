@@ -37,9 +37,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import browser, engines
+from . import browser, engines, quality
 from . import warmup as ladder
 from .classify import Verdict, classify
+from .hybrid import Headers, HybridSession
 from .links import LinkResolver
 from .output import build_record
 from .parse import parse_serp
@@ -251,6 +252,10 @@ class Settings:
     #: cheap pages of a long hold. After CACHE_REFUSALS refused copies that
     #: carried it, the rest of the run copies the cookie jar alone.
     clone_cache: bool = True
+    #: Fetch results pages over HTTP with the browser's cookies and headers,
+    #: and use the browser only for Google's checks (see `hybrid`). Needs the
+    #: relay; an engine that cannot do it ignores it.
+    hybrid: bool = True
 
     def __post_init__(self) -> None:
         engines.get(self.engine)
@@ -480,8 +485,15 @@ class Identity:
     #: Bytes per host by the end of the warm-up, and inside served pages.
     warm_hosts: dict[str, int] = field(default_factory=dict)
     page_hosts: dict[str, int] = field(default_factory=dict)
-    #: `queries` when the current browser was opened.
+    #: Results pages the browser rendered itself, not the hybrid's HTTP side;
+    #: what makes a browser grow, so what `restart_every` counts.
+    browser_pages: int = 0
+    #: `browser_pages` when the current browser was opened.
     browser_start: int = 0
+    #: Served pages in a row whose titles have little to do with their query.
+    low_relevance: int = 0
+    #: When the last results page on this exit finished, for the gap.
+    last_page_at: float = 0.0
     _window: dict[str, int] = field(default_factory=dict, repr=False)
 
     def bytes(self) -> int | None:
@@ -520,6 +532,8 @@ class Stats:
     queries_failed: int = 0
     exits_refused: int = 0
     exits_unreachable: int = 0
+    exits_poisoned: int = 0
+    pages_http: int = 0
     bytes_total: int = 0
     bytes_warm: int = 0
     links_resolved: int = 0
@@ -546,6 +560,8 @@ class Stats:
             "queries_failed": self.queries_failed,
             "exits_refused": self.exits_refused,
             "exits_unreachable": self.exits_unreachable,
+            "exits_poisoned": self.exits_poisoned,
+            "pages_http": self.pages_http,
             "links_resolved": self.links_resolved,
             "links_failed": self.links_failed,
         }
@@ -606,11 +622,14 @@ class Pinned:
     def visit(self, url: str, dwell_seconds: float) -> bool:
         return self._call(self.session.visit, url, dwell_seconds)
 
-    def search(self, query: str, direct: bool = False) -> Any:
-        return self._call(self.session.search, query, direct)
+    def search(self, query: str, direct: bool = False, **locale: str) -> Any:
+        return self._call(lambda: self.session.search(query, direct, **locale))
 
     def next_page(self) -> Any:
         return self._call(self.session.next_page)
+
+    def needs_restart(self) -> bool:
+        return self._call(getattr(self.session, "needs_restart", lambda: False))
 
     def blank(self) -> None:
         self._call(self.session.blank)
@@ -661,6 +680,8 @@ class Scraper:
         self._identity: Identity | None = None
         #: Upkeep a `search(settle=False)` left for `settle()`: (identity, more).
         self._unsettled: tuple[Identity, bool] | None = None
+        #: The hl and gl of the query being run, where `search()` was given them.
+        self._locale: dict[str, str] = {}
         self._spares: deque[Future] = deque()
         self._warmer: ThreadPoolExecutor | None = None
         self._cancel = threading.Event()
@@ -669,14 +690,20 @@ class Scraper:
         )
         self._owns_templates = True
         self._breaker = Breaker(self.settings.breaker)
+        self._headers = Headers()
         self._saved = 0
         self.stats = Stats()
 
-    def share(self, breaker: Breaker, templates: Templates) -> None:
-        """Use a breaker and a template that other scrapers use too (see `Pool`).
-        The shared template is left for its owner to drop when this one closes."""
+    def share(
+        self, breaker: Breaker, templates: Templates, headers: Headers | None = None
+    ) -> None:
+        """Use a breaker, a template and the hybrid's request headers that other
+        scrapers use too (see `Pool`). The shared template is left for its
+        owner to drop when this one closes."""
         self._breaker = breaker
         self._templates = templates
+        if headers is not None:
+            self._headers = headers
         self._owns_templates = False
 
     # -- public --------------------------------------------------------------
@@ -716,16 +743,31 @@ class Scraper:
             yield from self._query(query, more=following is not None)
             query = following
 
-    def search(self, query: str, settle: bool = True) -> list[dict[str, Any]]:
+    def search(
+        self, query: str, settle: bool = True, hl: str | None = None, gl: str | None = None
+    ) -> list[dict[str, Any]]:
         """One query, keeping the identity open for the next call (serve, MCP).
 
         With `settle=False` the upkeep a served query leaves behind - a template
         copy, a scheduled restart, retiring a capped exit - waits for `settle()`,
         so a server can answer first. A template copy closes and reopens the
         browser, which can take longer than the search itself.
+
+        `hl` and `gl` override the settings for this query; its results page is
+        then opened directly whatever `direct` says.
         """
         self.settle()
-        return [self._finish(r) for r in self._query(query.strip(), settle=settle)]
+        self._locale = {k: v for k, v in (("hl", hl), ("gl", gl)) if v}
+        try:
+            return [self._finish(r) for r in self._query(query.strip(), settle=settle)]
+        finally:
+            self._locale = {}
+
+    def _hl(self) -> str:
+        return self._locale.get("hl") or self.settings.hl
+
+    def _gl(self) -> str | None:
+        return self._locale.get("gl") or self.settings.gl
 
     def settle(self) -> None:
         """Run the upkeep the last `search(settle=False)` left, if any."""
@@ -800,7 +842,12 @@ class Scraper:
                 last_error = "exit unreachable: no warm-up page arrived"
                 continue
             if identity.queries:
-                self._sleep(self._rng.uniform(*s.gap_seconds))
+                # The gap is time since the last page, not a wait added to it:
+                # a server whose callers pause on their own has waited already.
+                idle = time.monotonic() - identity.last_page_at
+                rest = self._rng.uniform(*s.gap_seconds) - idle
+                if rest > 0:
+                    self._sleep(rest)
             started, before = time.monotonic(), identity.open_window()
             try:
                 fetched = self._search(identity, query)
@@ -819,9 +866,22 @@ class Scraper:
                 self._breaker.served()
                 if identity.clone and identity.queries == 1:
                     self._templates.copy_served(identity.template)
+                record = self._served(query, 1, fetched, verdict, identity, started, before, saved)
+                if self._poisoned(identity, query, record):
+                    # Results for other queries than the one asked: Google's
+                    # answer to some automated traffic. Not a page to return.
+                    self._finish(record)
+                    self.stats.pages_served -= 1
+                    if record["search_metadata"]["fetched_with"] == "http":
+                        self.stats.pages_http -= 1
+                    self.stats.exits_poisoned += 1
+                    last_verdict, last_error = None, "results unrelated to the query"
+                    self._retire("poisoned")
+                    self._count_failure()
+                    continue
                 if more:
                     self._top_up()
-                yield self._served(query, 1, fetched, verdict, identity, started, before, saved)
+                yield record
                 yield from self._more_pages(query, identity)
                 if settle:
                     self._upkeep(identity, more)
@@ -843,8 +903,8 @@ class Scraper:
             verdict=last_verdict,
             url=None,
             elapsed=0.0,
-            hl=s.hl,
-            gl=s.gl,
+            hl=self._hl(),
+            gl=self._gl(),
             exit_info={"session": None},
             error=last_error or f"refused on {s.max_exits_per_query} exits: {reason}",
         )
@@ -865,6 +925,8 @@ class Scraper:
         mode = self.settings.direct
         direct = mode == "all" or (mode == "follow-ups" and identity.queries > 0)
         try:
+            if self._locale:
+                return identity.session.search(query, direct=True, **self._locale)
             return identity.session.search(query, direct=direct)
         except Exception as exc:
             if (
@@ -874,8 +936,8 @@ class Scraper:
             ):
                 raise
             self._event("search_retry", identity, error=describe_error(exc))
-            if mode == "all":
-                return identity.session.search(query, direct=True)
+            if mode == "all" or self._locale:
+                return identity.session.search(query, direct=True, **self._locale)
             identity.session.visit(browser.HOME_URL, 0)
             return identity.session.search(query)
 
@@ -885,12 +947,14 @@ class Scraper:
         if s.stop_after_read and self._identity is identity:
             self._leave_page(identity)
         capped = identity.queries >= s.max_queries_per_exit
-        if (
+        if more and not capped and self._identity is identity and self._wants_restart(identity):
+            self._restart(identity)
+        elif (
             s.restart_every
             and more
             and not capped
             and self._identity is identity
-            and identity.queries - identity.browser_start >= s.restart_every
+            and identity.browser_pages - identity.browser_start >= s.restart_every
         ):
             self._restart(identity)
         if self._identity is identity and more and self._wants_template(identity):
@@ -949,24 +1013,30 @@ class Scraper:
     ) -> dict[str, Any]:
         after = identity.bytes()
         identity.close_window()
+        identity.last_page_at = time.monotonic()
         page_bytes = after - before if after is not None and before is not None else None
         self.stats.pages_served += 1
         timings = dict(getattr(fetched, "timings", None) or {})
         mark = time.monotonic()
         parsed = parse_serp(fetched.html)
         timings["parse"] = round(time.monotonic() - mark, 2)
+        if "http" in timings:
+            self.stats.pages_http += 1
+        else:
+            identity.browser_pages += 1
         record = build_record(
             query,
             page=page,
             verdict=verdict,
             url=fetched.url,
-            hl=self.settings.hl,
-            gl=self.settings.gl,
+            hl=self._hl(),
+            gl=self._gl(),
             elapsed=time.monotonic() - started,
             exit_info=identity.info(self.settings.warmup, page_bytes),
             parsed=parsed,
             timings=timings,
         )
+        record["search_metadata"]["fetched_with"] = "http" if "http" in timings else "browser"
         if saved:
             record["search_metadata"]["raw_html_file"] = saved
         resolver = self._links()
@@ -997,8 +1067,8 @@ class Scraper:
             verdict=verdict,
             url=None,
             elapsed=0.0,
-            hl=self.settings.hl,
-            gl=self.settings.gl,
+            hl=self._hl(),
+            gl=self._gl(),
             exit_info=identity.info(self.settings.warmup),
             error=error,
         )
@@ -1017,6 +1087,21 @@ class Scraper:
         return self._identity
 
     # -- copies of a served profile ------------------------------------------
+
+    def _wants_restart(self, identity: Identity) -> bool:
+        """The hybrid reads Chromium's request headers from a NetLog, which is
+        complete only once the browser is closed."""
+        if self._wants_template(identity):
+            return False  # the template copy closes the browser anyway
+        check = getattr(identity.session, "needs_restart", None)
+        return bool(check and check())
+
+    def _poisoned(self, identity: Identity, query: str, record: dict[str, Any]) -> bool:
+        titles = [r.get("title") or "" for r in record.get("organic_results") or []]
+        unrelated = quality.unrelated(query, titles)
+        if unrelated is not None:
+            identity.low_relevance = identity.low_relevance + 1 if unrelated else 0
+        return identity.low_relevance >= quality.POISON_STREAK
 
     def _wants_template(self, identity: Identity) -> bool:
         return not identity.clone and self._templates.wanted()
@@ -1060,17 +1145,21 @@ class Scraper:
         upstream = self.proxy.for_session(session_id) if self.proxy is not None else None
         relay, browser_proxy = self._relay_for(upstream)
         started = time.monotonic()
-        session = self._factory(
+        session = self._hybrid(
+            self._factory(
+                browser_proxy,
+                headless=s.headless,
+                channel=s.channel,
+                timezone_id=s.timezone_id,
+                browser_args=s.browser_args,
+                rng=self._rng,
+                profile_dir=profile,
+                input_mode=s.input,
+                hl=s.hl,
+                gl=s.gl,
+            ),
+            relay,
             browser_proxy,
-            headless=s.headless,
-            channel=s.channel,
-            timezone_id=s.timezone_id,
-            browser_args=s.browser_args,
-            rng=self._rng,
-            profile_dir=profile,
-            input_mode=s.input,
-            hl=s.hl,
-            gl=s.gl,
         )
         try:
             session.__enter__()
@@ -1112,16 +1201,20 @@ class Scraper:
         started = time.monotonic()
 
         def make() -> Any:
-            return self._factory(
+            return self._hybrid(
+                self._factory(
+                    browser_proxy,
+                    headless=s.headless,
+                    channel=s.channel,
+                    timezone_id=s.timezone_id,
+                    browser_args=s.browser_args,
+                    rng=self._rng,
+                    input_mode=s.input,
+                    hl=s.hl,
+                    gl=s.gl,
+                ),
+                relay,
                 browser_proxy,
-                headless=s.headless,
-                channel=s.channel,
-                timezone_id=s.timezone_id,
-                browser_args=s.browser_args,
-                rng=self._rng,
-                input_mode=s.input,
-                hl=s.hl,
-                gl=s.gl,
             )
 
         try:
@@ -1186,6 +1279,14 @@ class Scraper:
             self._count_failure()
             return None
         return identity
+
+    def _hybrid(self, session: Any, relay: Any, browser_proxy: dict[str, str] | None) -> Any:
+        """The session, driven by the hybrid when the settings and the engine
+        allow it. The HTTP side goes through the identity's relay, so it uses
+        the same exit and its traffic is counted with the browser's."""
+        if not (self.settings.hybrid and getattr(session, "hybrid_capable", False) and relay):
+            return session
+        return HybridSession(session, browser_proxy["server"], self._headers, self._emit)
 
     def _relay_for(self, upstream: dict[str, str] | None):
         """Decide whether this identity goes through the counting relay."""
@@ -1255,7 +1356,7 @@ class Scraper:
 
     def _restart(self, identity: Identity) -> None:
         """Close the browser and open it again on the same profile and exit."""
-        identity.browser_start = identity.queries
+        identity.browser_start = identity.browser_pages
         try:
             source = identity.session.suspend()
             renewed = self._renew_template(identity, source)

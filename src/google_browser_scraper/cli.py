@@ -239,6 +239,12 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="hand the proxy to the browser directly, without the traffic count",
     )
+    p.add_argument(
+        "--no-hybrid",
+        action="store_true",
+        help="fetch every results page in the browser; by default they come over HTTP "
+        "with the browser's cookies, and the browser handles only Google's checks",
+    )
     p.add_argument("--hl", default="en", help="interface language of the results, e.g. de")
     p.add_argument(
         "--gl",
@@ -313,6 +319,7 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
         timezone_id=args.timezone,
         browser_args=browser_args,
         use_relay=not args.no_relay,
+        hybrid=not args.no_hybrid,
         save_html=_html_dir(args.save_html, worker),
         resolve_links=not args.no_resolve_links,
         hl=args.hl,

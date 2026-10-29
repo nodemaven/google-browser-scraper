@@ -5,6 +5,10 @@ Field names follow the usual SERP API JSON.
 `ai_overview` is the AI Overview's text when the page carries one; its source
 links are loaded by script after the page and are not part of it.
 
+`local_results` are the places in the map pack of a local query: name, rating,
+review count, and the lines Google prints under them (price, type, address,
+hours, a quoted review).
+
 Google wraps every result link in an encrypted `/goto?url=...` redirect. Some
 pages still pair each token with its destination in their inline JSON, so the
 parser tries that first; a link it cannot find keeps its `redirect_link`, and
@@ -42,6 +46,7 @@ def parse_serp(page: str, *, base_url: str = GOOGLE) -> dict[str, Any]:
         "related_searches": _related_searches(root, base_url),
         "pagination": _pagination(root, base_url),
         "ai_overview": _ai_overview(root),
+        "local_results": _local_results(root),
     }
 
 
@@ -224,6 +229,104 @@ def _ai_overview(root) -> dict[str, Any]:
         text = text.replace(chrome, " ")
     text = " ".join(text.split())
     return {"text": text} if len(text) >= _AI_MIN_TEXT else {}
+
+
+_RATING = re.compile(r"(\d+(?:[.,]\d+)?)")
+_COUNT = re.compile(r"\(?\s*([\d.,]+)\s*([KkMm]?)\s*\)?")
+
+
+def _count(text: str) -> int | None:
+    """ "(1.7K)" -> 1700, "(44)" -> 44."""
+    found = _COUNT.fullmatch(text.strip())
+    if not found:
+        return None
+    number, unit = found.groups()
+    scale = {"k": 1_000, "m": 1_000_000}.get(unit.lower(), 1)
+    try:
+        if scale > 1:
+            return round(float(number.replace(",", ".")) * scale)
+        return int(number.replace(",", "").replace(".", ""))
+    except ValueError:
+        return None
+
+
+_PHONE = re.compile(r"\+?[\d\s().-]{7,}")
+_HOURS = re.compile(
+    r"^(open|closed|closes|opens|temporarily closed)\b"
+    r"|^(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thu(rs?)?|fri|sat|sun)\b"
+    r"|\b\d{1,2}(:\d{2})?\s?(am|pm)\b",
+    re.IGNORECASE,
+)
+
+
+def _place_facts(lines: list[str]) -> dict[str, str]:
+    """Address, phone and hours out of the lines under a place's name.
+
+    A line holds one or more facts joined by middle dots ("Brooklyn, NY",
+    "Open · Closes 11 PM · (646) 688-0366"). The address is the first fact that
+    is neither a phone number nor opening hours; anything else stays in
+    `extensions` only.
+    """
+    facts: dict[str, str] = {}
+    hours: list[str] = []
+    for line in lines:
+        for part in (p.strip() for p in re.split("[·⋅]", line)):
+            if not part:
+                continue
+            digits = sum(c.isdigit() for c in part)
+            if "phone" not in facts and _PHONE.fullmatch(part) and digits >= 7:
+                facts["phone"] = part
+            elif _HOURS.search(part):
+                hours.append(part)
+            elif "address" not in facts and line is lines[0]:
+                facts["address"] = part
+    if hours:
+        facts["hours"] = " · ".join(hours)
+    return facts
+
+
+def _local_results(root) -> list[dict[str, Any]]:
+    """The map pack's places, in the order shown.
+
+    Each place's details sit in one `rllt__details` block: a heading with the
+    name, then a line per fact. The rating carries a `role=img` label; the line
+    it sits on also holds the price and the type, joined by middle dots.
+    """
+    places: list[dict[str, Any]] = []
+    for details in root.xpath("//*[contains(concat(' ', @class, ' '), ' rllt__details ')]"):
+        heading = _first(details, ".//*[@role='heading']")
+        if heading is None:
+            continue
+        place: dict[str, Any] = {"position": len(places) + 1, "title": _text(heading)}
+        rating = _first(details, ".//*[@role='img'][@aria-label]")
+        lines = [line for line in details.xpath("./div") if line is not heading]
+        for line in lines:
+            if rating is not None and rating in line.iterdescendants():
+                stars = _first(rating, "./span[1]")
+                found = _RATING.search(_text(stars) if stars is not None else "")
+                if found:
+                    place["rating"] = float(found.group(1).replace(",", "."))
+                count = _first(rating, "./span[last()]")
+                reviews = _count(_text(count)) if count is not None else None
+                if reviews is not None:
+                    place["reviews"] = reviews
+                parts = [p.strip() for p in _text(line).split("·")][1:]
+                parts = [p for p in parts if p]
+                if len(parts) >= 2:
+                    place["price"] = parts[0]
+                if parts:
+                    place["type"] = parts[-1]
+            elif "pJ3Ci" in (line.get("class") or "").split():
+                quote = _text(line).strip(' "“”')
+                if quote:
+                    place["description"] = quote
+            else:
+                text = _text(line)
+                if text:
+                    place.setdefault("extensions", []).append(text)
+        place.update(_place_facts(place.get("extensions", [])))
+        places.append(place)
+    return places
 
 
 def _visible_text(el, *, skip_label: bool = False) -> str:

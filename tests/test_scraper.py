@@ -1143,3 +1143,69 @@ def test_results_url_carries_language_and_country():
     assert results_url("pizza", hl="de", gl="at") == (
         "https://www.google.com/search?q=pizza&hl=de&gl=at"
     )
+
+
+def test_an_exit_serving_pages_unrelated_to_their_queries_is_retired_as_poisoned():
+    # The fixture's titles are about swimming; three multi-word queries about
+    # something else in a row look like the "poisoned" pages Google is
+    # reported to serve some traffic. The third goes to a new exit.
+    s = scraper([[SERVED] * 3, [SERVED]])
+    queries = ["symptoms of strep throat", "mortgage calculator taxes", "fish tank setup"]
+    records = list(s.run(queries))
+    assert [r["search_parameters"]["q"] for r in records] == queries
+    first, second = FakeSession.opened
+    assert first.searched == queries and second.searched == ["fish tank setup"]
+    assert s.stats.exits_poisoned == 1 and s.stats.pages_served == 3
+
+
+def test_one_word_queries_are_not_judged_for_poisoning():
+    s = scraper([[SERVED] * 4])
+    list(s.run(["costco", "walmart", "target", "ikea"]))
+    assert s.stats.exits_poisoned == 0 and len(FakeSession.opened) == 1
+
+
+def test_a_fake_browser_is_not_driven_by_the_hybrid():
+    s = scraper([[SERVED]])
+    records = list(s.run(["a"]))
+    assert not hasattr(FakeSession.opened[0], "inner")
+    assert records[0]["search_metadata"]["fetched_with"] == "browser"
+
+
+def test_restart_every_counts_pages_the_browser_rendered_not_http_ones():
+    from google_browser_scraper.browser import Fetched as F
+
+    http = F(SEARCH, 200, pages.results_page(), timings={"http": 0.4})
+    s = scraper([[SERVED, http, http, http, SERVED, SERVED]], Settings(
+        gap_seconds=(0, 0), dwell_seconds=(0, 0), restart_every=2, settle_seconds=(0, 0)))
+    list(s.run(["a", "b", "c", "d", "e", "f"]))
+    assert FakeSession.opened[0].restarts == [5]
+
+
+def test_search_with_hl_and_gl_opens_the_page_directly_and_records_them():
+    class Locale(FakeSession):
+        def search(self, query, direct=False, **locale):
+            self.locales = getattr(self, "locales", []) + [locale]
+            return super().search(query, direct)
+
+    s = scraper([[SERVED, SERVED]], Settings(
+        gap_seconds=(0, 0), dwell_seconds=(0, 0), direct="none"), cls=Locale)
+    first = s.search("a", hl="de", gl="at")[0]
+    second = s.search("b")[0]
+    session = FakeSession.opened[0]
+    assert session.locales == [{"hl": "de", "gl": "at"}, {}]
+    assert session.direct == [True, False]
+    assert first["search_parameters"]["hl"] == "de" and first["search_parameters"]["gl"] == "at"
+    assert second["search_parameters"]["hl"] == "en" and "gl" not in second["search_parameters"]
+
+
+def test_the_gap_counts_from_the_last_page_so_a_paused_caller_is_not_made_to_wait():
+    slept = []
+    s = scraper([[SERVED, SERVED, SERVED]], Settings(gap_seconds=(4, 4), dwell_seconds=(0, 0)),
+                sleep=slept.append)
+    s.search("a")
+    s.search("b")  # straight after the first: the whole gap
+    assert slept and 3.9 < slept[-1] <= 4
+    s._identity.last_page_at -= 10  # the caller paused longer than the gap
+    count = len(slept)
+    s.search("c")
+    assert len(slept) == count

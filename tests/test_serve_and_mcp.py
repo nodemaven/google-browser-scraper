@@ -47,10 +47,12 @@ class FakeScraper:
         self.refuse = refuse
         self.threads, self.calls, self.closed, self.resets = set(), [], False, 0
         self.settle_flags, self.settled = [], 0
+        self.locales = []
 
-    def search(self, query, settle=True):
+    def search(self, query, settle=True, **locale):
         self.threads.add(threading.get_ident())
         self.calls.append((query, self.settings.pages))
+        self.locales.append(locale)
         self.settle_flags.append(settle)
         if self.refuse:
             raise ExitsRefused("6 exits in a row")
@@ -124,6 +126,20 @@ def test_one_page_returns_the_record_itself(api, worker):
     assert status == 200
     assert body["search_parameters"] == {"q": "running shoes", "page": 1}
     assert worker.fake.calls == [("running shoes", 1)]
+
+
+def test_hl_and_gl_reach_the_scraper_for_one_query(api, worker):
+    assert get(api() + "/search.json?q=x&hl=de&gl=at")[0] == 200
+    assert get(api() + "/search.json?q=y")[0] == 200
+    assert worker.fake.locales == [{"hl": "de", "gl": "at"}, {}]
+
+
+def test_a_malformed_hl_or_gl_is_refused_before_the_url(api, worker):
+    status, body = get(api() + "/search.json?q=x&gl=usa")
+    assert status == 400 and "gl" in body["error"]
+    status, body = get(api() + "/search.json?q=x&hl=en%26gl%3Dru")
+    assert status == 400 and "hl" in body["error"]
+    assert worker.fake.calls == []
 
 
 def test_the_upkeep_is_left_until_the_answer_is_out(api, worker):
@@ -268,6 +284,16 @@ def test_mcp_tool_call_returns_compact_results(worker):
     assert worker.fake.calls[-1] == ("shoes", 2)
     worker.call(lambda s: None)
     assert worker.fake.settle_flags == [False] and worker.fake.settled == 1
+
+
+def test_mcp_tool_call_takes_hl_and_gl(worker):
+    server = McpServer(worker, stdout=io.StringIO())
+    args = {"query": "shoes", "hl": "pt-BR", "gl": "br"}
+    assert rpc(server, "tools/call", {"name": "google_search", "arguments": args})["result"]
+    assert worker.fake.locales[-1] == {"hl": "pt-BR", "gl": "br"}
+    bad_args = {"query": "q", "gl": "1"}
+    bad = rpc(server, "tools/call", {"name": "google_search", "arguments": bad_args})
+    assert bad["result"]["isError"] is True
 
 
 def test_mcp_errors(worker):
@@ -437,3 +463,14 @@ def test_compact_carries_the_first_ai_overview():
     ]
     assert compact(records)["ai_overview"] == "Page one answer."
     assert "ai_overview" not in compact([{"organic_results": [], "ai_overview": {}}])
+
+
+def test_compact_carries_the_map_places():
+    from google_browser_scraper.mcp import compact
+
+    place = {"position": 1, "title": "P", "rating": 4.5, "reviews": 10, "price": "$",
+             "type": "Cafe", "address": "1 Main St", "extensions": ["1 Main St"]}
+    out = compact([{"organic_results": [], "local_results": [place]}])
+    assert out["places"] == [
+        {"title": "P", "rating": 4.5, "reviews": 10, "type": "Cafe", "address": "1 Main St"}
+    ]

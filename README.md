@@ -24,11 +24,11 @@
   <img src="https://raw.githubusercontent.com/nodemaven/google-browser-scraper/main/assets/demo.gif" alt="A real Chrome window showing Google results next to the JSON the scraper produced for them" width="900">
 </p>
 
-**Latest version benchmarks (v0.0.6):**
+**Latest version benchmarks (v0.1):**
 
-- 100% success rate
-- 0.8 MB per search request
-- 9 seconds per search request per instance
+- 99.6% success rate (548 of 550 searches)
+- 0.4 MB per search once an exit is warm; warming a new exit costs 30-110 MB
+- 1.4 seconds per search on a warm exit (median)
 
 Scrape Google search results (SERP) with a real Chrome browser and your own
 residential proxy, and get clean JSON back. Use it as a CLI, a Python library,
@@ -42,12 +42,19 @@ that browser, checks whether Google served results or refused, and writes one
 JSON record per results page. Captchas, blocks and failures are reported as
 such, never as "no results".
 
+Once Google serves the browser, most results pages come over plain HTTP with
+the browser's own cookies and request headers, and the browser runs only when
+Google asks for its check again. A results page fetched that way is a single
+document instead of a fully rendered page, so it costs a fraction of the
+traffic.
+
 ## Features
 
 - **Real browser scraping:** real Chrome via Patchright, with a warm-up before every new identity
+- **Low traffic:** results pages over HTTP with the browser's cookies between Google's checks; the browser takes over by itself when that stops working
 - **Bring your own proxy:** any residential proxy with sticky sessions, built-in [NodeMaven](https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=features) support
-- **SERP API alternative:** JSON with `organic_results`, `ads`, `related_questions`, `related_searches`, `pagination`
-- **Honest failures:** captchas and blocks come back labeled, not as empty results
+- **SERP API alternative:** JSON with `organic_results`, `ads`, `related_questions`, `related_searches`, `pagination`, `ai_overview` and `local_results`
+- **Honest failures:** captchas and blocks come back labeled, not as empty results; an exit that keeps getting results unrelated to the queries is dropped
 - **Cost tracking:** bytes per page and cost per 1000 pages in every run summary
 - **Four ways to run it:** CLI, Python library, HTTP API, MCP server for AI agents
 - **Docker image** for self-hosted deployment
@@ -140,13 +147,18 @@ One JSON object per results page:
 
 The schema uses the field names common to SERP APIs: `organic_results`, `ads`,
 `related_questions`, `related_searches`, `pagination` and `search_metadata`, so
-simple consumers can often switch with minimal mapping. Knowledge panels,
-shopping, images and other special blocks are not parsed.
+simple consumers can often switch with minimal mapping. `ai_overview` holds the
+text of Google's AI Overview when the page shows one, and `local_results` the
+places of the map pack on local queries (name, rating, reviews, type, address,
+phone, opening hours).
+Knowledge panels, shopping, images and other special blocks are not parsed.
 
 Each record also has an `exit` block: which proxy session answered and how many
-bytes the page cost. `search_metadata.timings` says where the page's time went,
-in seconds per step (`type`, `load`, `ready`, `read`, `parse`, and `links`, which
-overlaps the next query and is not part of `total_time_taken`). A query that
+bytes the page cost. `search_metadata.fetched_with` is `http` or `browser`.
+`search_metadata.timings` says where the page's time went, in seconds per step
+(`http` for a page fetched over HTTP; `type`, `load`, `ready` and `read` for one
+the browser rendered; `parse`; and `links`, which overlaps the next query and is
+not part of `total_time_taken`). A query that
 failed is a record too, with an `error`. `--format csv` writes the organic
 results as a table, and `--price-per-gb` adds the cost per 1000 pages to the
 summary.
@@ -158,7 +170,9 @@ google-browser-scraper serve --nodemaven --country us --prewarm
 curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 ```
 
-Same record format as above. Requests run one at a time on one held identity.
+Same record format as above. `hl` (language, e.g. `de`) and `gl` (country,
+e.g. `at`) can be set per request: `/search.json?q=...&hl=de&gl=at`. Requests
+run one at a time on one held identity.
 `--prewarm` searches once at startup, moving to a new exit until Google serves
 one, so a request sent after it does not wait for a warm-up. `/health` answers
 503 `warming` until then; a request sent earlier waits in line behind it. Set
@@ -179,7 +193,9 @@ localhost.
 }
 ```
 
-It exposes one tool, `google_search(query, pages)`.
+It exposes one tool, `google_search(query, pages, hl, gl)`. The answer carries
+the organic results, "People also ask", related searches, and the AI Overview and
+map places when Google shows them.
 
 ## Docker
 
@@ -198,8 +214,11 @@ To build it yourself: `docker build -t google-browser-scraper .`
 
 1. **New identity:** a sticky proxy session and a fresh browser profile.
 2. **Warm-up:** a few ordinary pages, staying on each for 20-45 seconds.
-3. **Search:** each query opens Google's results page directly, which is
-   faster than the search box and skips the autocomplete traffic of typing.
+3. **Search:** an exit's first query opens Google's results page in the
+   browser. Once Google serves it, the following results pages are fetched
+   over HTTP with the browser's cookies and headers, until Google asks for its
+   check again; the browser then runs one query, passes it, and HTTP carries on
+   with the fresh cookies.
 4. **Check before parsing:** the page is classified first, so a captcha or a
    block is reported as one and never parsed as an empty result.
 5. **Keep or drop:** an exit Google answers is reused for the next queries; an
@@ -207,13 +226,28 @@ To build it yourself: `docker build -t google-browser-scraper .`
    after exit is refused, the run stops instead of spending more traffic.
 
 <details>
-<summary><b>More detail: holding exits, copied cookies, result links, traffic</b></summary>
+<summary><b>More detail: HTTP between checks, holding exits, copied cookies, result links, traffic</b></summary>
 
 <br>
 
+**HTTP between checks.** The request headers come from Chromium itself: once per
+run, the first served browser search is recorded in a Chromium NetLog and its
+headers are reused in Chromium's order, through `curl_cffi` with Chrome's TLS and
+HTTP/2 fingerprint, on the same exit and the same counting relay. When the HTTP
+side stops getting pages (several short runs between checks in a row, errors, or
+pages that parse to nothing, which is what a change in Google's markup looks
+like), that exit goes back to the browser; when several exits in a row do, the
+whole run does. `--no-hybrid` uses the browser for every page.
+
+**Unrelated results.** Google is reported to answer some automated traffic with
+a normal-looking page of results for other queries instead of a block. When three
+pages in a row on one exit have almost no title that carries the query's words,
+the exit is dropped and the query asked again on a new one. One-word queries are
+not judged.
+
 **Holding exits.** A served exit is kept for up to 300 queries. Every new exit
 pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 50
-results pages the browser is restarted on the same profile and exit, which keeps
+results pages it renders, the browser is restarted on the same profile and exit, which keeps
 its memory from growing over a long hold. A browser error on a search is retried
 once on the same exit before the exit is dropped; a network error, running out of
 memory or a crashed browser drops it at once.
@@ -257,7 +291,9 @@ The defaults come from measurements in
 |---|---|---|
 | `--workers N` | 1 | Search on N exits at once, one browser each, from one list of queries |
 | `--max-per-exit N` | 300 | Queries before a served exit is retired |
-| `--restart-every N` | 50 | Results pages before the browser restarts on the same profile and exit; `0` never |
+| `--restart-every N` | 50 | Results pages the browser rendered before it restarts on the same profile and exit; `0` never |
+| `--no-hybrid` | | Fetch every results page in the browser instead of over HTTP between Google's checks |
+| `--hl`, `--gl` | `en`, unset | Language and country of the results |
 | `--clone N` | 10 | New exits started from copied cookies; `0` turns copying off |
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |

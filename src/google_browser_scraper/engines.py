@@ -20,6 +20,7 @@ class CloakSession(BrowserSession):
     every step after launch is the patchright code path."""
 
     name = "cloak"
+    hybrid_capable = False
 
     def _launch(self, profile: str):
         try:
@@ -36,7 +37,7 @@ class CloakSession(BrowserSession):
             proxy=self._proxy,
             viewport=None,
             timezone=self._timezone_id,
-            args=self._args or None,
+            args=self.launch_args(),
         )
 
 

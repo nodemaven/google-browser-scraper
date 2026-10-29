@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "google-browser-scraper"
-version = "0.0.6.2"
+version = "0.1.0"
 description = "Google Search results from a real browser through your own sticky proxy, with captchas and blocks reported explicitly."
 readme = "README.md"
 license = { text = "MIT" }
@@ -19,10 +19,14 @@ classifiers = [
 ]
 dependencies = [
     # Pinned, because each patchright release ships a different Chromium and
-    # the browser build is part of what Google sees. 1.62.2 is Chromium 151,
-    # the build every live run of this tool was made with.
-    "patchright==1.62.2",
+    # the browser build is part of what Google sees. 1.64.3 is Chromium 156; a
+    # new pin replaces the old one only after both ran side by side on Google.
+    "patchright==1.64.3",
     "lxml>=5",
+    # Results pages over HTTP between the browser's checks (see `hybrid`):
+    # Chromium's TLS and HTTP/2 fingerprint. Pinned for the same reason as
+    # patchright: what it impersonates is part of what Google sees.
+    "curl_cffi==0.17.0",
 ]
 
 [project.optional-dependencies]

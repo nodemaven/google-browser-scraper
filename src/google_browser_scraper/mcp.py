@@ -24,7 +24,7 @@ from typing import IO, Any
 from . import __version__
 from .output import use_utf8
 from .scraper import ExitsRefused
-from .server import Worker, search_job, settle_job
+from .server import Worker, locale_problem, search_job, settle_job
 
 SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MAX_PAGES = 3
@@ -35,7 +35,8 @@ TOOL = {
     "description": (
         "Search Google through a real browser and the configured proxy. Returns "
         "organic results (position, title, link, snippet), 'People also ask' "
-        "questions and related searches. The first call can take a minute or two "
+        "questions, related searches, the AI Overview and map places when Google "
+        "shows them. The first call can take a minute or two "
         "while a proxy exit is warmed up; later calls take seconds."
     ),
     "inputSchema": {
@@ -48,6 +49,14 @@ TOOL = {
                 "maximum": MAX_PAGES,
                 "default": 1,
                 "description": "Result pages to fetch (about 10 results each).",
+            },
+            "hl": {
+                "type": "string",
+                "description": "Interface language of the results, e.g. en, de, pt-BR.",
+            },
+            "gl": {
+                "type": "string",
+                "description": "Country the results are for, two letters, e.g. us, de.",
             },
         },
         "required": ["query"],
@@ -74,6 +83,10 @@ def compact(records: list[dict[str, Any]]) -> dict[str, Any]:
         overview = (record.get("ai_overview") or {}).get("text")
         if overview and "ai_overview" not in out:
             out["ai_overview"] = overview
+        places = record.get("local_results") or []
+        if places and "places" not in out:
+            keep = ("title", "rating", "reviews", "type", "address", "phone", "hours")
+            out["places"] = [{k: p[k] for k in keep if k in p} for p in places]
         out["related_questions"] += [q["question"] for q in record.get("related_questions", [])]
         out["related_searches"] += [s["query"] for s in record.get("related_searches", [])]
     if errors:
@@ -148,8 +161,12 @@ class McpServer:
         except (TypeError, ValueError):
             return _tool_error("pages must be an integer")
         pages = max(1, min(MAX_PAGES, pages))
+        hl, gl = str(args.get("hl") or "") or None, str(args.get("gl") or "") or None
+        problem = locale_problem(hl, gl)
+        if problem:
+            return _tool_error(problem)
         try:
-            records = self._worker.call(search_job(query, pages))
+            records = self._worker.call(search_job(query, pages, hl, gl))
         except ExitsRefused as exc:
             return _tool_error(str(exc))
         except Exception as exc:
