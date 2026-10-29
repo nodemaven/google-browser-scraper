@@ -236,12 +236,15 @@ def test_short_series_twice_turn_the_exit_to_the_browser():
     assert headers.streak == 1 and not headers.disabled
 
 
-def test_a_refusal_is_not_held_against_the_http_side():
+def test_refusals_the_browser_gets_past_turn_the_exit_to_the_browser():
+    # Google refuses the HTTP side while the browser on the same exit is
+    # served: asking over HTTP again would only collect more refusals.
     client = Client([Response(pages.SORRY_PAGE, 429, pages.SORRY_URL)] * 3)
     s, headers = session(client)
     for q in "abc":
         s.search(q, direct=True)
-    assert len(client.sent) == 3 and headers.streak == 0
+    assert len(client.sent) == 2 and s.inner.searched == ["a", "b", "c"]
+    assert headers.streak == 1
 
 
 def test_three_exits_in_a_row_stepping_back_turn_the_run_to_the_browser():

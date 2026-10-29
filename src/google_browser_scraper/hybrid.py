@@ -15,8 +15,8 @@ Until they are read, every query goes through the browser.
 
 The hybrid steps back to the browser when the HTTP side stops working: after
 `FALLBACK_SERIES` short series in a row on one exit (fewer than `FALLBACK_MIN`
-pages between checks, an error, or a served page with no results, which is
-what a change in Google's markup looks like), that exit searches in the browser
+pages before a check, a refusal, an error, or a served page with no results,
+which is what a change in Google's markup looks like), that exit searches in the browser
 only. When `FALLBACK_EXITS` exits in a row step back, the rest of the run does.
 """
 
@@ -45,7 +45,9 @@ FALLBACK_EXITS = 3
 #: A series this long shows the HTTP side works, and clears the run's count of
 #: exits that stepped back.
 GOOD_SERIES = 20
-TIMEOUT = 60
+#: Seconds for one results page over HTTP; one that hangs costs this before the
+#: browser takes the query, and a served page takes one or two.
+TIMEOUT = 20
 GOOGLE = "https://www.google.com/search"
 
 
@@ -459,9 +461,11 @@ class HybridSession:
         )
         if served >= GOOD_SERIES:
             self._headers.worked()
-        # A refusal is about the exit, which the scraper retires; these three
-        # are about the HTTP side.
-        weak = served < FALLBACK_MIN and reason in ("check", "error", "empty")
+        # Whatever stopped it: the browser takes the query next, and when the
+        # exit itself is refused there the scraper retires it anyway. A refusal
+        # the browser then gets past is Google turning the HTTP side away, and
+        # asking again only collects more refusals.
+        weak = served < FALLBACK_MIN
         self._weak = self._weak + 1 if weak else 0
         if self._weak >= FALLBACK_SERIES:
             self._off = True
