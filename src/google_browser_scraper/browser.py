@@ -274,15 +274,13 @@ class BrowserSession:
 
     def set_google_cookies(self, header: str, deleted: tuple[str, ...] = ()) -> None:
         """Take the values in a cookie header, keeping each cookie's attributes,
-        and drop the cookies named in `deleted`."""
-        for name in deleted:
-            self._context.clear_cookies(name=name, domain=".google.com")
+        and drop the cookies named in `deleted` that the header does not set."""
         known = {c["name"]: c for c in self._context.cookies(GOOGLE_SEARCH)}
+        pairs = [p.strip().split("=", 1) for p in header.split(";") if "=" in p]
+        for name in set(deleted) - {name for name, _ in pairs}:
+            self._context.clear_cookies(name=name, domain=".google.com")
         update = []
-        for part in header.split(";"):
-            if "=" not in part:
-                continue
-            name, value = part.strip().split("=", 1)
+        for name, value in pairs:
             base = known.get(name)
             if base is not None and base["value"] == value:
                 continue

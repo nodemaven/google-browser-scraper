@@ -371,3 +371,10 @@ def test_a_long_series_clears_the_runs_streak_before_it_ends():
     for i in range(hybrid.GOOD_SERIES):
         s.search(f"query {i}", direct=True)
     assert headers.streak == 0
+
+
+def test_a_cookie_set_again_after_its_deletion_is_not_reported_deleted():
+    deleted = set()
+    cookie = hybrid.fold_cookies("A=1", ["A=x; Max-Age=0"], deleted)
+    cookie = hybrid.fold_cookies(cookie, ["A=2; Path=/"], deleted)
+    assert cookie == "A=2" and deleted == set()

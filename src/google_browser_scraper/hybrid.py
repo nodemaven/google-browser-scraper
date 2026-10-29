@@ -140,6 +140,8 @@ def fold_cookies(cookie: str, set_cookies: list[str], deleted: set[str] | None =
             pairs = [p for p in pairs if p[0] != name]
             if deleted is not None:
                 deleted.add(name)
+        elif deleted is not None:
+            deleted.discard(name)  # set again after it was deleted
     return "; ".join(f"{n}={v}" for n, v in pairs)
 
 

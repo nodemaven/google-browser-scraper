@@ -259,6 +259,21 @@ _HOURS = re.compile(
 #: An address carries a number or a comma ("1435 Broadway", "Brooklyn, NY",
 #: a plus code); service options ("Dine-in", "Takeout") carry neither.
 _ADDRESS_LIKE = re.compile(r"[\d,]")
+#: What Google lists next to a place instead of an address.
+_SERVICE_OPTIONS = frozenset(
+    {
+        "dine-in",
+        "takeout",
+        "delivery",
+        "curbside pickup",
+        "no-contact delivery",
+        "in-store shopping",
+        "in-store pickup",
+        "onsite services",
+        "online appointments",
+        "drive-through",
+    }
+)
 
 
 def _place_facts(lines: list[str]) -> dict[str, str]:
@@ -271,6 +286,7 @@ def _place_facts(lines: list[str]) -> dict[str, str]:
     """
     facts: dict[str, str] = {}
     hours: list[str] = []
+    plain: str | None = None  # first fact without a number or a comma
     for line in lines:
         for part in (p.strip() for p in re.split("[·⋅]", line)):
             if not part:
@@ -282,6 +298,10 @@ def _place_facts(lines: list[str]) -> dict[str, str]:
                 hours.append(part)
             elif "address" not in facts and _ADDRESS_LIKE.search(part):
                 facts["address"] = part
+            elif plain is None and line is lines[0] and part.lower() not in _SERVICE_OPTIONS:
+                plain = part
+    if "address" not in facts and plain is not None:
+        facts["address"] = plain  # "Broadway", "Central Park"
     if hours:
         facts["hours"] = " · ".join(hours)
     return facts

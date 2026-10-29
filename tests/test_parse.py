@@ -200,3 +200,10 @@ def test_service_options_are_not_an_address_and_a_bare_rating_has_no_review_coun
     )
     place = parse_serp(pages.results_page(local=lone))["local_results"][0]
     assert place["rating"] == 4.6 and "reviews" not in place
+
+
+def test_a_plain_street_name_is_an_address_but_a_service_option_is_not():
+    from google_browser_scraper.parse import _place_facts
+
+    assert _place_facts(["Broadway", "Open \u00b7 Closes 9 PM"])["address"] == "Broadway"
+    assert "address" not in _place_facts(["Dine-in \u00b7 Takeout"])

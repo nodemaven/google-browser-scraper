@@ -486,9 +486,13 @@ def test_compact_carries_the_map_places():
 
 
 def test_an_ai_overview_alone_is_not_a_tool_error():
-    from google_browser_scraper.mcp import compact
+    class OverviewOnly:
+        def call(self, job):
+            return [{"organic_results": [], "ai_overview": {"text": "x" * 300}}, {"error": "no"}]
 
-    body = compact(
-        [{"organic_results": [], "ai_overview": {"text": "x" * 300}}, {"error": "refused"}]
-    )
-    assert body["ai_overview"] and body["errors"]
+        def after(self, job):
+            pass
+
+    server = McpServer(OverviewOnly(), stdout=io.StringIO())
+    args = {"name": "google_search", "arguments": {"query": "q", "pages": 2}}
+    assert rpc(server, "tools/call", args)["result"]["isError"] is False
