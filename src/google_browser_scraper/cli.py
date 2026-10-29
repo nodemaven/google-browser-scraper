@@ -75,7 +75,9 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--max-pages", type=int, default=3)
     serve.add_argument(
-        "--prewarm", action="store_true", help="find a proxy IP Google serves before the first request"
+        "--prewarm",
+        action="store_true",
+        help="find a proxy IP Google serves before the first request",
     )
     serve.set_defaults(handler=_serve)
 
