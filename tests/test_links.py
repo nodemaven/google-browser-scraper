@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from google_browser_scraper.links import LinkResolver, ping_destination, ping_paths
+from google_browser_scraper.links import PING_BUDGET_S, LinkResolver, ping_destination, ping_paths
 from google_browser_scraper.scraper import _fill_links
 
 
@@ -151,7 +151,7 @@ def test_ping_paths_map_each_goto_href_to_its_anchors_ping():
 def test_pings_resolve_every_result_of_a_page_on_its_exit():
     asked = []
 
-    def get(path):
+    def get(path, timeout):
         asked.append(path)
         token = path.split("url=")[1].split("&")[0]
         return 200, "", ping_answer(f"https://{token.lower()}.example/page")
@@ -176,7 +176,7 @@ def test_pings_resolve_every_result_of_a_page_on_its_exit():
 def test_a_refused_ping_ends_asking_for_that_page_only():
     asked = []
 
-    def get(path):
+    def get(path, timeout):
         asked.append(path)
         return 302, "https://www.google.com/sorry/index?continue=x", ""
 
@@ -194,7 +194,7 @@ def test_a_refused_ping_ends_asking_for_that_page_only():
 def test_an_error_on_a_ping_stops_asking_for_that_page():
     asked = []
 
-    def get(path):
+    def get(path, timeout):
         asked.append(path)
         return None
 
@@ -211,14 +211,16 @@ def test_a_miss_is_counted_once_when_no_goto_resolver_follows():
     resolver = LinkResolver(None, relay_factory=None)
     resolver.enabled = False
     results = [{"link": None, "redirect_link": "https://www.google.com/goto?url=AAA"}]
-    resolver.fill_from_pings(results, PAGE, lambda path: (200, "", "<html>Loading...</html>"))
+    resolver.fill_from_pings(
+        results, PAGE, lambda path, timeout: (200, "", "<html>Loading...</html>")
+    )
     resolver.fill(results)
     assert resolver.failed == 1 and resolver.resolved == 0
 
 
 def test_a_ping_lookup_that_raises_still_leaves_the_rest_to_goto():
     class Client:
-        def get(self, path):
+        def get(self, path, timeout):
             raise RuntimeError("broken")
 
         def close(self):
@@ -239,7 +241,7 @@ def test_a_record_from_http_is_resolved_on_its_exit_and_the_client_closed():
     class Client:
         closed = False
 
-        def get(self, path):
+        def get(self, path, timeout):
             return 200, "", ping_answer("https://aaa.example/")
 
         def close(self):
@@ -253,3 +255,19 @@ def test_a_record_from_http_is_resolved_on_its_exit_and_the_client_closed():
     }
     _fill_links(resolver, record, PAGE, Client())
     assert record["organic_results"][0]["link"] == "https://aaa.example/" and Client.closed
+
+
+def test_each_ping_gets_what_is_left_of_the_page_budget():
+    timeouts = []
+
+    def get(path, timeout):
+        timeouts.append(timeout)
+        return 200, "", ping_answer("https://aaa.example/")
+
+    resolver = LinkResolver(None, relay_factory=None)
+    results = [
+        {"link": None, "redirect_link": f"https://www.google.com/goto?url={t}"}
+        for t in ("AAA", "BBB")
+    ]
+    resolver.fill_from_pings(results, PAGE, get)
+    assert len(timeouts) == 2 and 0 < timeouts[1] <= timeouts[0] <= PING_BUDGET_S

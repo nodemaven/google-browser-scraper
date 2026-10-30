@@ -185,12 +185,13 @@ class LinkResolver:
         self,
         results: list[dict[str, Any]],
         page: str,
-        get: Callable[[str], tuple[int, str, str] | None],
+        get: Callable[[str, float], tuple[int, str, str] | None],
     ) -> None:
         """Resolve a page's /goto links on the exit the page came from.
 
-        `get(path)` asks Google's host for `path` there and returns the status,
-        the Location and the body, or None on an error. Each result is asked
+        `get(path, timeout)` asks Google's host for `path` there within
+        `timeout` seconds and returns the status, the Location and the body, or
+        None on an error. Each result is asked
         through its anchor's ping URL. A refusal or an error ends asking for
         this page, as does `PING_BUDGET_S`; the resolver itself stays on, since
         another exit is another answer. A result left without a link is counted
@@ -205,9 +206,10 @@ class LinkResolver:
             path = pings.get("/goto?" + redirect.split("/goto?", 1)[1])
             if path is None:
                 continue
-            if time.monotonic() > deadline:
+            left = deadline - time.monotonic()
+            if left <= 0:
                 return
-            answer = get(path)
+            answer = get(path, left)
             if answer is None:
                 return
             status, location, body = answer

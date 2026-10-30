@@ -424,7 +424,7 @@ def test_links_of_an_http_page_are_asked_on_its_exit_with_its_cookies():
     assert url == "https://www.google.com/url?sa=t&url=AAA"
     assert dict(headers)["cookie"] == "SID=browser; NID=2"
     assert dict(headers)["referer"] == "https://www.google.com/"
-    assert asked.options == {"allow_redirects": False}
+    assert asked.options == {"allow_redirects": False, "timeout": hybrid.TIMEOUT}
 
 
 def test_a_page_the_browser_rendered_is_asked_with_the_browsers_cookies():
@@ -456,3 +456,12 @@ def test_link_headers_say_same_origin_after_the_language():
         ("referer", "https://www.google.com/"),
         ("cookie", "Y=2"),
     ]
+
+
+def test_a_link_request_never_waits_longer_than_asked():
+    s, _ = session(Client([Response(SERVED.html)]))
+    s.search("best running shoes", direct=True)
+    links = s.link_client()
+    links._http = asked = Client([Response("<html></html>", status=302)])
+    links.get("/url?sa=t&url=AAA", 3.5)
+    assert asked.options["timeout"] == 3.5

@@ -252,8 +252,9 @@ class LinkClient:
                 out.append(referer)
         return out if referer in out else out + [referer]
 
-    def get(self, path: str) -> tuple[int, str, str] | None:
-        """Status, Location and body of `path`, redirects not followed; None on an error."""
+    def get(self, path: str, timeout: float = TIMEOUT) -> tuple[int, str, str] | None:
+        """Status, Location and body of `path`, redirects not followed, within
+        `timeout` seconds (at most `TIMEOUT`); None on an error."""
         if self._http is None:
             from curl_cffi import requests as cr
 
@@ -265,7 +266,10 @@ class LinkClient:
             )
         try:
             response = self._http.get(
-                self._origin + path, headers=self._headers(), allow_redirects=False
+                self._origin + path,
+                headers=self._headers(),
+                allow_redirects=False,
+                timeout=min(timeout, TIMEOUT),
             )
         except Exception:
             return None
