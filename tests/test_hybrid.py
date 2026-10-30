@@ -462,6 +462,8 @@ def test_a_link_request_never_waits_longer_than_asked():
     s, _ = session(Client([Response(SERVED.html)]))
     s.search("best running shoes", direct=True)
     links = s.link_client()
-    links._http = asked = Client([Response("<html></html>", status=302)])
+    links._http = asked = Client([Response("<html></html>", status=302)] * 2)
     links.get("/url?sa=t&url=AAA", 3.5)
     assert asked.options["timeout"] == 3.5
+    links.get("/url?sa=t&url=BBB", hybrid.TIMEOUT + 10)
+    assert asked.options["timeout"] == hybrid.TIMEOUT
