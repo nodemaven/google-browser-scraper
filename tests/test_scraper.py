@@ -11,6 +11,7 @@ from google_browser_scraper.proxy import ProxyTemplate
 from google_browser_scraper.scraper import (
     PREWARM_QUERIES,
     ExitsRefused,
+    Pinned,
     ProxyRefused,
     Scraper,
     Settings,
@@ -1249,3 +1250,16 @@ def test_a_poisoned_page_does_not_reset_the_breaker():
     # Two pages before the streak and the third on the new exit reset it; the
     # poisoned third page on the first exit does not.
     assert len(resets) == 3
+
+
+def test_a_spare_passes_its_link_client_through():
+    class Hybrid:
+        def link_client(self):
+            return "client"
+
+    with_client, without = Pinned(lambda: Hybrid()), Pinned(lambda: object())
+    try:
+        assert with_client.link_client() == "client" and without.link_client() is None
+    finally:
+        with_client._thread.shutdown(wait=False)
+        without._thread.shutdown(wait=False)

@@ -7,17 +7,27 @@ works from any client, so a link costs one small request.
 The resolver uses its own sticky proxy session, never the browser's, so link
 resolution does not touch the warmed browser session, and its traffic goes
 through a relay so it is counted like everything else.
+
+A page that came over HTTP is resolved on its own exit instead: each result's
+anchor carries a ping URL, which Google answers there with a small page naming
+the destination. Its /goto answers with a destination only for the few results
+it prefetches, and asked from a fresh exit it is refused.
 """
 
 from __future__ import annotations
 
+import html
+import re
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import urlsplit
+
+from lxml import html as lxml_html
 
 from .relay import Relay
 
@@ -28,6 +38,36 @@ UA = (
 TIMEOUT_S = 30
 #: /goto links resolved at once for one page.
 PARALLEL = 4
+#: Seconds one page's ping lookups may take; the rest go to the /goto resolver.
+PING_BUDGET_S = 30.0
+#: Google's answer to a ping URL names the destination in a refresh tag and in
+#: the script that navigates to it.
+_REFRESH = re.compile(r'<meta[^>]*content="0;url=([^"]+)"')
+_SCRIPT = re.compile(r"redirectUrl='([^']+)'")
+
+
+def ping_paths(page: str) -> dict[str, str]:
+    """Each result anchor's /goto href, mapped to the same anchor's ping URL."""
+    paths: dict[str, str] = {}
+    for anchor in lxml_html.fromstring(page).iter("a"):
+        href, ping = anchor.get("href") or "", anchor.get("ping") or ""
+        if href.startswith("/goto?") and ping.startswith("/url?"):
+            paths.setdefault(href, ping)
+    return paths
+
+
+def ping_destination(body: str) -> str | None:
+    """The destination named by Google's answer to a ping URL."""
+    if match := _REFRESH.search(body):
+        return html.unescape(match.group(1))
+    if match := _SCRIPT.search(body):
+        return re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), match.group(1))
+    return None
+
+
+def _refused(location: str) -> bool:
+    host = urlsplit(location).netloc.lower()
+    return "/sorry" in location or host.startswith(("sorry.", "consent."))
 
 
 class _AlwaysProxy(urllib.request.ProxyHandler):
@@ -114,8 +154,7 @@ class LinkResolver:
             with self._lock:
                 self.failed += 1
             return None
-        host = urlsplit(location or "").netloc.lower()
-        if not location or "/sorry" in location or host.startswith(("sorry.", "consent.")):
+        if not location or _refused(location):
             with self._lock:
                 self.failed += 1
                 self.enabled = False
@@ -141,6 +180,52 @@ class LinkResolver:
             links = list(pool.map(lambda r: self.resolve(r["redirect_link"]), todo))
         for result, link in zip(todo, links, strict=True):
             result["link"] = link
+
+    def fill_from_pings(
+        self,
+        results: list[dict[str, Any]],
+        page: str,
+        get: Callable[[str, float], tuple[int, str, str] | None],
+    ) -> None:
+        """Resolve a page's /goto links on the exit the page came from.
+
+        `get(path, timeout)` asks Google's host for `path` there within
+        `timeout` seconds and returns the status, the Location and the body, or
+        None on an error. Each result is asked
+        through its anchor's ping URL. A refusal or an error ends asking for
+        this page, as does `PING_BUDGET_S`; the resolver itself stays on, since
+        another exit is another answer. A result left without a link is counted
+        by `fill`, which tries it next, or here when `fill` will not.
+        """
+        pings = ping_paths(page)
+        deadline = time.monotonic() + PING_BUDGET_S
+        for result in results:
+            redirect = result.get("redirect_link") or ""
+            if result.get("link") is not None or "/goto?" not in redirect:
+                continue
+            path = pings.get("/goto?" + redirect.split("/goto?", 1)[1])
+            if path is None:
+                continue
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return
+            answer = get(path, left)
+            if answer is None:
+                return
+            status, location, body = answer
+            if _refused(location):
+                return
+            link = None
+            if 300 <= status < 400:
+                link = location or None
+            elif status == 200:
+                link = ping_destination(body)
+            with self._lock:
+                if link:
+                    self.resolved += 1
+                    result["link"] = link
+                elif not self.enabled:
+                    self.failed += 1
 
     def close(self) -> None:
         if self._relay is not None:
