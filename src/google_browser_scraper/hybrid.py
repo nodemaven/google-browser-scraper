@@ -245,6 +245,8 @@ class LinkClient:
     def _headers(self) -> list[tuple[str, str]]:
         out, referer = [], ("referer", self._origin + "/")
         for name, value in replay_headers(self._request, self._cookie):
+            if name == "referer":
+                continue
             out.append((name, "same-origin" if name == "sec-fetch-site" else value))
             if name == "accept-language":
                 out.append(referer)

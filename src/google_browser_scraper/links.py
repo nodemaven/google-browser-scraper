@@ -19,6 +19,7 @@ from __future__ import annotations
 import html
 import re
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -37,6 +38,8 @@ UA = (
 TIMEOUT_S = 30
 #: /goto links resolved at once for one page.
 PARALLEL = 4
+#: Seconds one page's ping lookups may take; the rest go to the /goto resolver.
+PING_BUDGET_S = 30.0
 #: Google's answer to a ping URL names the destination in a refresh tag and in
 #: the script that navigates to it.
 _REFRESH = re.compile(r'<meta[^>]*content="0;url=([^"]+)"')
@@ -188,10 +191,13 @@ class LinkResolver:
 
         `get(path)` asks Google's host for `path` there and returns the status,
         the Location and the body, or None on an error. Each result is asked
-        through its anchor's ping URL. A refusal ends asking for this page; the
-        resolver itself stays on, since another exit is another answer.
+        through its anchor's ping URL. A refusal or an error ends asking for
+        this page, as does `PING_BUDGET_S`; the resolver itself stays on, since
+        another exit is another answer. A result left without a link is counted
+        by `fill`, which tries it next, or here when `fill` will not.
         """
         pings = ping_paths(page)
+        deadline = time.monotonic() + PING_BUDGET_S
         for result in results:
             redirect = result.get("redirect_link") or ""
             if result.get("link") is not None or "/goto?" not in redirect:
@@ -199,24 +205,25 @@ class LinkResolver:
             path = pings.get("/goto?" + redirect.split("/goto?", 1)[1])
             if path is None:
                 continue
+            if time.monotonic() > deadline:
+                return
             answer = get(path)
+            if answer is None:
+                return
+            status, location, body = answer
+            if _refused(location):
+                return
             link = None
-            if answer is not None:
-                status, location, body = answer
-                if _refused(location):
-                    with self._lock:
-                        self.failed += 1
-                    return
-                if 300 <= status < 400:
-                    link = location or None
-                elif status == 200:
-                    link = ping_destination(body)
+            if 300 <= status < 400:
+                link = location or None
+            elif status == 200:
+                link = ping_destination(body)
             with self._lock:
                 if link:
                     self.resolved += 1
-                else:
+                    result["link"] = link
+                elif not self.enabled:
                     self.failed += 1
-            result["link"] = link
 
     def close(self) -> None:
         if self._relay is not None:

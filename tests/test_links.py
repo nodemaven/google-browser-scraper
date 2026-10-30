@@ -136,7 +136,7 @@ PAGE = (
 
 def test_a_ping_answer_names_the_destination():
     assert ping_destination(ping_answer("https://e.com/a?b=1&c=2")) == "https://e.com/a?b=1&c=2"
-    script_only = "<script>var redirectUrl='https://e.com/x\x3dy';</script>"
+    script_only = r"<script>var redirectUrl='https://e.com/x\x3dy';</script>"
     assert ping_destination(script_only) == "https://e.com/x=y"
     assert ping_destination("<html>Loading...</html>") is None
 
@@ -186,8 +186,53 @@ def test_a_refused_ping_ends_asking_for_that_page_only():
         for t in ("AAA", "BBB")
     ]
     resolver.fill_from_pings(results, PAGE, get)
-    assert len(asked) == 1 and resolver.failed == 1 and resolver.enabled
+    # Left for the /goto resolver, which tries them next and counts them.
+    assert len(asked) == 1 and resolver.failed == 0 and resolver.enabled
     assert [r["link"] for r in results] == [None, None]
+
+
+def test_an_error_on_a_ping_stops_asking_for_that_page():
+    asked = []
+
+    def get(path):
+        asked.append(path)
+        return None
+
+    resolver = LinkResolver(None, relay_factory=None)
+    results = [
+        {"link": None, "redirect_link": f"https://www.google.com/goto?url={t}"}
+        for t in ("AAA", "BBB")
+    ]
+    resolver.fill_from_pings(results, PAGE, get)
+    assert len(asked) == 1
+
+
+def test_a_miss_is_counted_once_when_no_goto_resolver_follows():
+    resolver = LinkResolver(None, relay_factory=None)
+    resolver.enabled = False
+    results = [{"link": None, "redirect_link": "https://www.google.com/goto?url=AAA"}]
+    resolver.fill_from_pings(results, PAGE, lambda path: (200, "", "<html>Loading...</html>"))
+    resolver.fill(results)
+    assert resolver.failed == 1 and resolver.resolved == 0
+
+
+def test_a_ping_lookup_that_raises_still_leaves_the_rest_to_goto():
+    class Client:
+        def get(self, path):
+            raise RuntimeError("broken")
+
+        def close(self):
+            pass
+
+    resolver = LinkResolver(None, relay_factory=None)
+    filled = []
+    resolver.fill = lambda results: filled.append(len(results))
+    record = {
+        "organic_results": [{"link": None, "redirect_link": "https://www.google.com/goto?url=AAA"}],
+        "search_metadata": {},
+    }
+    _fill_links(resolver, record, PAGE, Client())
+    assert filled == [1]
 
 
 def test_a_record_from_http_is_resolved_on_its_exit_and_the_client_closed():

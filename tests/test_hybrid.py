@@ -416,6 +416,7 @@ def test_links_of_an_http_page_are_asked_on_its_exit_with_its_cookies():
     s, _ = session(client)
     s.search("best running shoes", direct=True)
     links = s.link_client()
+    assert links._proxy_url == "http://127.0.0.1:1"  # the page's own proxy IP
     asked = Client([Response("<html></html>", status=302)])
     links._http = asked
     links.get("/url?sa=t&url=AAA")
@@ -436,6 +437,12 @@ def test_no_link_client_before_chromiums_headers_are_read():
     s, _ = session(Client([]), headers=Headers())
     s.search("q", direct=True)
     assert s.link_client() is None
+
+
+def test_link_headers_carry_one_referer_even_if_the_template_had_one():
+    request = {"headers": [("accept-language", "en"), ("referer", "https://x.example/")]}
+    out = LinkClient("http://127.0.0.1:1", request, "", "https://www.google.com")._headers()
+    assert [v for n, v in out if n == "referer"] == ["https://www.google.com/"]
 
 
 def test_link_headers_say_same_origin_after_the_language():

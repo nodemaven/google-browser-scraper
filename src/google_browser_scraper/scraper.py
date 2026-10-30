@@ -590,6 +590,8 @@ def _fill_links(resolver, record: dict[str, Any], page: str = "", client=None) -
     if client is not None:
         try:
             resolver.fill_from_pings(results, page, client.get)
+        except Exception:
+            pass  # whatever is left goes to the /goto resolver below
         finally:
             client.close()
     resolver.fill(results)
@@ -641,6 +643,9 @@ class Pinned:
 
     def needs_restart(self) -> bool:
         return self._call(getattr(self.session, "needs_restart", lambda: False))
+
+    def link_client(self) -> Any:
+        return self._call(getattr(self.session, "link_client", lambda: None))
 
     def blank(self) -> None:
         self._call(self.session.blank)
