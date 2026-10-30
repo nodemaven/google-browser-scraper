@@ -58,7 +58,7 @@ Results pages over HTTPS between Google's checks: a fraction of a browser's traf
 <td width="50%" valign="top">
 
 🛡️ **Poisoned results protection**<br>
-Pages of results for some other query are caught and never returned; the query is asked again on a fresh proxy IP.
+Pages of results for some other query are caught: the proxy IP serving them is dropped within a few pages and the query is asked again on a fresh one.
 
 </td>
 </tr>
@@ -237,9 +237,9 @@ Google does not always block a scraper. Sometimes it answers with a normal-looki
 results page for a different query: no captcha, no error, just wrong data that
 slips into your pipeline unnoticed.
 
-The scraper checks every results page against the query it asked. When a proxy IP
-starts returning unrelated results, it is dropped and the query is asked again on
-a fresh one, so poisoned pages never reach your output.
+The scraper checks results pages against the queries it asked. When a proxy IP
+starts returning unrelated results, it is dropped within a few pages and the query
+is asked again on a fresh one.
 
 - No extra requests, no extra traffic: the check runs on the page already downloaded
 - On by default

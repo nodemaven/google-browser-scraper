@@ -4,10 +4,11 @@ Google is reported to answer some automated traffic not with a block but with a
 normal-looking page of results for other queries. On such a page almost no
 title carries the query's words. A single page like that happens on an honest
 exit too - a brand query whose titles name only the brand, a local query
-answered with business names - so an exit counts as poisoned only after
-`POISON_STREAK` such pages in a row. A query with fewer than `MIN_WORDS`
-content words says too little to judge by, and neither adds to a streak nor
-ends one.
+answered with business names - so an exit counts as poisoned only when
+`POISON_HITS` of its last `POISON_WINDOW` judged pages are like that. A window
+rather than a run in a row, because poisoned pages can come between normal ones,
+and a normal page would end the run each time. A query with fewer than
+`MIN_WORDS` content words says too little to judge by and is not counted.
 """
 
 from __future__ import annotations
@@ -17,7 +18,8 @@ import re
 #: Below this share of titles holding half of the query's words, a page is
 #: unrelated to its query.
 POISON_RELEVANCE = 0.2
-POISON_STREAK = 3
+POISON_HITS = 3
+POISON_WINDOW = 5
 MIN_WORDS = 2
 STOP_WORDS = frozenset(
     "how to the a an of for and in on is what are best with do does you your my can i vs".split()

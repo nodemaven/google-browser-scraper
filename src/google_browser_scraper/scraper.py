@@ -492,8 +492,9 @@ class Identity:
     browser_pages: int = 0
     #: `browser_pages` when the current browser was opened.
     browser_start: int = 0
-    #: Served pages in a row whose titles have little to do with their query.
-    low_relevance: int = 0
+    #: The last served pages judged against their query, True where the
+    #: titles have little to do with it.
+    low_relevance: deque[bool] = field(default_factory=lambda: deque(maxlen=quality.POISON_WINDOW))
     #: When the last results page on this exit finished, for the gap.
     last_page_at: float = 0.0
     _window: dict[str, int] = field(default_factory=dict, repr=False)
@@ -1100,8 +1101,8 @@ class Scraper:
         titles = [r.get("title") or "" for r in record.get("organic_results") or []]
         unrelated = quality.unrelated(query, titles)
         if unrelated is not None:
-            identity.low_relevance = identity.low_relevance + 1 if unrelated else 0
-        return identity.low_relevance >= quality.POISON_STREAK
+            identity.low_relevance.append(unrelated)
+        return sum(identity.low_relevance) >= quality.POISON_HITS
 
     def _wants_template(self, identity: Identity) -> bool:
         return not identity.clone and self._templates.wanted()
