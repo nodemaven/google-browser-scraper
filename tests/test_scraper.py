@@ -1158,6 +1158,28 @@ def test_an_exit_serving_pages_unrelated_to_their_queries_is_retired_as_poisoned
     assert s.stats.exits_poisoned == 1 and s.stats.pages_served == 3
 
 
+def test_poisoned_pages_between_normal_ones_still_retire_the_exit():
+    # Three unrelated pages among the last five, with normal pages between
+    # them: a run in a row would be reset by each normal page.
+    s = scraper([[SERVED] * 5, [SERVED]])
+    unrelated = ["symptoms of strep throat", "mortgage calculator taxes", "fish tank setup"]
+    related = ["beginner swimming guide", "swimming techniques for beginners"]
+    queries = [unrelated[0], related[0], unrelated[1], related[1], unrelated[2]]
+    records = list(s.run(queries))
+    assert [r["search_parameters"]["q"] for r in records] == queries
+    first, second = FakeSession.opened
+    assert first.searched == queries and second.searched == [unrelated[2]]
+    assert s.stats.exits_poisoned == 1 and s.stats.pages_served == 5
+
+
+def test_two_unrelated_pages_in_five_are_not_poisoning():
+    s = scraper([[SERVED] * 7])
+    u = ["symptoms of strep throat", "mortgage calculator taxes", "fish tank setup"]
+    r = ["beginner swimming guide", "swimming techniques for beginners"]
+    list(s.run([u[0], r[0], r[1], u[1], r[0], r[1], u[2]]))
+    assert s.stats.exits_poisoned == 0 and len(FakeSession.opened) == 1
+
+
 def test_one_word_queries_are_not_judged_for_poisoning():
     s = scraper([[SERVED] * 4])
     list(s.run(["costco", "walmart", "target", "ikea"]))

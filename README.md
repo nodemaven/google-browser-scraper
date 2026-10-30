@@ -238,8 +238,8 @@ results page for a different query: no captcha, no error, just wrong data that
 slips into your pipeline unnoticed.
 
 The scraper checks every results page against the query it asked. When a proxy IP
-starts returning unrelated results, it is dropped and the query is asked again on
-a fresh one, so poisoned pages never reach your output.
+starts returning unrelated results, it is dropped within a few pages and the query
+is asked again on a fresh one.
 
 - No extra requests, no extra traffic: the check runs on the page already downloaded
 - On by default
