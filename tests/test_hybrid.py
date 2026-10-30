@@ -7,7 +7,7 @@ import pages
 
 from google_browser_scraper import hybrid, quality
 from google_browser_scraper.browser import Fetched
-from google_browser_scraper.hybrid import Headers, HybridSession
+from google_browser_scraper.hybrid import Headers, HybridSession, LinkClient
 
 SEARCH = "https://www.google.com/search?q=x"
 SERVED = Fetched(SEARCH, 200, pages.results_page())
@@ -43,8 +43,9 @@ class Client:
     def __init__(self, script):
         self.script, self.sent = list(script), []
 
-    def get(self, url, headers):
+    def get(self, url, headers, **options):
         self.sent.append((url, headers))
+        self.options = options
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -408,3 +409,43 @@ def test_a_page_with_only_places_is_served_over_http():
     s, _ = session(client)
     fetched = s.search("pizza near me", direct=True)
     assert fetched.timings.get("http") is not None and s.inner.searched == []
+
+
+def test_links_of_an_http_page_are_asked_on_its_exit_with_its_cookies():
+    client = Client([Response(SERVED.html, set_cookie=["NID=2"])])
+    s, _ = session(client)
+    s.search("best running shoes", direct=True)
+    links = s.link_client()
+    asked = Client([Response("<html></html>", status=302)])
+    links._http = asked
+    links.get("/url?sa=t&url=AAA")
+    url, headers = asked.sent[0]
+    assert url == "https://www.google.com/url?sa=t&url=AAA"
+    assert dict(headers)["cookie"] == "SID=browser; NID=2"
+    assert dict(headers)["referer"] == "https://www.google.com/"
+    assert asked.options == {"allow_redirects": False}
+
+
+def test_a_page_the_browser_rendered_is_asked_with_the_browsers_cookies():
+    s, _ = session(Client([]), opened=False)
+    s.search("a b", direct=True)  # an exit's first query goes through the browser
+    assert s.link_client()._cookie == "SID=browser"
+
+
+def test_no_link_client_before_chromiums_headers_are_read():
+    s, _ = session(Client([]), headers=Headers())
+    s.search("q", direct=True)
+    assert s.link_client() is None
+
+
+def test_link_headers_say_same_origin_after_the_language():
+    request = {
+        "headers": [("sec-fetch-site", "none"), ("accept-language", "en"), ("cookie", "X=1")]
+    }
+    out = LinkClient("http://127.0.0.1:1", request, "Y=2", "https://www.google.com")._headers()
+    assert out == [
+        ("sec-fetch-site", "same-origin"),
+        ("accept-language", "en"),
+        ("referer", "https://www.google.com/"),
+        ("cookie", "Y=2"),
+    ]

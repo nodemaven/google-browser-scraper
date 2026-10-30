@@ -582,9 +582,17 @@ class Stats:
         return out
 
 
-def _fill_links(resolver, record: dict[str, Any]) -> None:
+def _fill_links(resolver, record: dict[str, Any], page: str = "", client=None) -> None:
+    """A record's links: on the exit its page came from, through each result's
+    ping URL, then from the resolver's own exit for whatever is left."""
     mark = time.monotonic()
-    resolver.fill(record.get("organic_results") or [])
+    results = record.get("organic_results") or []
+    if client is not None:
+        try:
+            resolver.fill_from_pings(results, page, client.get)
+        finally:
+            client.close()
+    resolver.fill(results)
     record["search_metadata"].setdefault("timings", {})["links"] = round(time.monotonic() - mark, 2)
 
 
@@ -1044,7 +1052,11 @@ class Scraper:
         if resolver is not None:
             if self._link_pool is None:
                 self._link_pool = ThreadPoolExecutor(1, thread_name_prefix="gbs-links")
-            self._link_jobs[id(record)] = self._link_pool.submit(_fill_links, resolver, record)
+            make = getattr(identity.session, "link_client", None)
+            client = make() if make else None
+            self._link_jobs[id(record)] = self._link_pool.submit(
+                _fill_links, resolver, record, fetched.html, client
+            )
         return record
 
     def _links_ready(self, record: dict[str, Any]) -> bool:
@@ -1402,6 +1414,12 @@ class Scraper:
             self._close_identity(identity, reason)
 
     def _close_identity(self, identity: Identity, reason: str) -> None:
+        # Links of its last pages are asked on its exit, which closes with it.
+        for job in list(self._link_jobs.values()):
+            try:
+                job.result()
+            except Exception:
+                pass
         try:
             identity.session.close()
         finally:

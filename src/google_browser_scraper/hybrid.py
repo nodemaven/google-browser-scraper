@@ -229,6 +229,55 @@ class Headers:
 # -- the session ------------------------------------------------------------------
 
 
+class LinkClient:
+    """Asks Google's host for a path on the exit a page came over HTTP from, with
+    that page's cookies and Chromium's headers as for a click from the results
+    page. For the link resolver's thread: it has an HTTP client of its own, so it
+    never shares one with the session's searches."""
+
+    def __init__(self, proxy_url: str, request: dict, cookie: str, origin: str, http=None) -> None:
+        self._proxy_url = proxy_url
+        self._request = request
+        self._cookie = cookie
+        self._origin = origin
+        self._http = http
+
+    def _headers(self) -> list[tuple[str, str]]:
+        out, referer = [], ("referer", self._origin + "/")
+        for name, value in replay_headers(self._request, self._cookie):
+            out.append((name, "same-origin" if name == "sec-fetch-site" else value))
+            if name == "accept-language":
+                out.append(referer)
+        return out if referer in out else out + [referer]
+
+    def get(self, path: str) -> tuple[int, str, str] | None:
+        """Status, Location and body of `path`, redirects not followed; None on an error."""
+        if self._http is None:
+            from curl_cffi import requests as cr
+
+            self._http = cr.Session(
+                impersonate=impersonate_for(self._request),
+                default_headers=False,
+                proxies={"http": self._proxy_url, "https": self._proxy_url},
+                timeout=TIMEOUT,
+            )
+        try:
+            response = self._http.get(
+                self._origin + path, headers=self._headers(), allow_redirects=False
+            )
+        except Exception:
+            return None
+        return response.status_code, response.headers.get("location") or "", response.text
+
+    def close(self) -> None:
+        if self._http is not None:
+            try:
+                self._http.close()
+            except Exception:
+                pass
+            self._http = None
+
+
 class HybridSession:
     """A browser session whose results pages come over HTTP while Google
     serves them there, and from the browser otherwise.
@@ -391,6 +440,16 @@ class HybridSession:
                 lambda: self.inner.open_results(query, page * 10, **self._locale), query, page + 1
             )
         return self._browser(self.inner.next_page, None)
+
+    def link_client(self) -> LinkClient | None:
+        """For the page this session just fetched, over HTTP or in the browser:
+        what its links are asked with, on this exit and with the cookies as
+        they are now. None until Chromium's request headers have been read."""
+        if self._headers.request is None or not self._proxy_url or not self._cookie:
+            return None
+        home = urlsplit(search_page())
+        origin = f"{home.scheme}://{home.netloc}"
+        return LinkClient(self._proxy_url, self._headers.request, self._cookie, origin)
 
     def _browser(self, call, query: str | None, page: int = 1) -> Fetched | None:
         if self._cookie:

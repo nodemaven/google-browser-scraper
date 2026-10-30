@@ -336,9 +336,10 @@ copies carrying the cache are refused on their first search, the rest of the
 run copies cookies only (`--no-clone-cache` does that from the start).
 
 **Result links.** Google wraps result links in encrypted `/goto` redirects.
-Each one is resolved with a small request through a separate short-lived proxy
-session, a few at a time, in the background while the browser goes on to the
-next query. Records still come out in the order each browser searched them.
+Each one is resolved with a small request on the proxy IP the page came from,
+with that page's cookies, in the background while the next query runs; a link
+left over is tried through a separate short-lived proxy session. Records still
+come out in the order each browser searched them.
 
 **Traffic.** Everything goes through a small local relay that counts bytes per
 host and blocks a large model download Chrome otherwise makes on every fresh
