@@ -44,9 +44,9 @@ PING_BUDGET_S = 30.0
 #: the script that navigates to it.
 _REFRESH = re.compile(r'<meta[^>]*content="0;url=([^"]+)"')
 _SCRIPT = re.compile(r"redirectUrl='([^']+)'")
-#: Google's own hosts: google.com, google.de, google.co.uk, google.com.br and
-#: their subdomains.
-_GOOGLE_HOST = re.compile(r"(?:.+\.)?google\.(?:com|co\.[a-z]{2}|com\.[a-z]{2}|[a-z]{2})")
+#: Google's own hosts: google.com, google.de, google.co.uk, google.com.br,
+#: google.cat and their subdomains.
+_GOOGLE_HOST = re.compile(r"(?:.+\.)?google\.(?:com|cat|co\.[a-z]{2}|com\.[a-z]{2}|[a-z]{2})")
 
 
 def ping_paths(page: str) -> dict[str, str]:
@@ -67,8 +67,9 @@ def _destination(url: str | None) -> str | None:
         return None
     try:
         parts = urlsplit(url)
-        host = parts.hostname or ""
-    except ValueError:  # a malformed URL, such as an unclosed IPv6 bracket
+        host = (parts.hostname or "").rstrip(".")
+        _ = parts.port  # raises on a port that is not a number in range
+    except ValueError:  # a malformed URL: an unclosed IPv6 bracket, a bad port
         return None
     if parts.scheme not in ("http", "https") or not host:
         return None
