@@ -44,6 +44,9 @@ PING_BUDGET_S = 30.0
 #: the script that navigates to it.
 _REFRESH = re.compile(r'<meta[^>]*content="0;url=([^"]+)"')
 _SCRIPT = re.compile(r"redirectUrl='([^']+)'")
+#: Google's own hosts: google.com, google.de, google.co.uk, google.com.br,
+#: google.cat and their subdomains.
+_GOOGLE_HOST = re.compile(r"(?:.+\.)?google\.(?:com|cat|co\.[a-z]{2}|com\.[a-z]{2}|[a-z]{2})")
 
 
 def ping_paths(page: str) -> dict[str, str]:
@@ -56,12 +59,33 @@ def ping_paths(page: str) -> dict[str, str]:
     return paths
 
 
+def _destination(url: str | None) -> str | None:
+    """`url` if it can be where a result leads: an absolute http(s) URL and not
+    one of Google's own redirects. Google's "Verifying your request" page names
+    the same /goto again, relative, and that is not a destination."""
+    if not url:
+        return None
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").rstrip(".")
+        _ = parts.port  # raises on a port that is not a number in range
+    except ValueError:  # a malformed URL: an unclosed IPv6 bracket, a bad port
+        return None
+    if parts.scheme not in ("http", "https") or not host:
+        return None
+    if parts.path in ("/goto", "/url") and _GOOGLE_HOST.fullmatch(host):
+        return None
+    return url
+
+
 def ping_destination(body: str) -> str | None:
     """The destination named by Google's answer to a ping URL."""
     if match := _REFRESH.search(body):
-        return html.unescape(match.group(1))
+        return _destination(html.unescape(match.group(1)))
     if match := _SCRIPT.search(body):
-        return re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), match.group(1))
+        return _destination(
+            re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), match.group(1))
+        )
     return None
 
 
@@ -159,9 +183,13 @@ class LinkResolver:
                 self.failed += 1
                 self.enabled = False
             return None
+        link = _destination(location)
         with self._lock:
-            self.resolved += 1
-        return location
+            if link is None:  # a redirect to Google's own page: a miss, not a refusal
+                self.failed += 1
+            else:
+                self.resolved += 1
+        return link
 
     def fill(self, results: list[dict[str, Any]]) -> None:
         """Resolve every result that has a /goto redirect and no link yet.
@@ -217,7 +245,7 @@ class LinkResolver:
                 return
             link = None
             if 300 <= status < 400:
-                link = location or None
+                link = _destination(location)
             elif status == 200:
                 link = ping_destination(body)
             with self._lock:

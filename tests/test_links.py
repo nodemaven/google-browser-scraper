@@ -16,6 +16,8 @@ class Handler(BaseHTTPRequestHandler):
             target = "https://www.google.com/sorry/index?continue=x"
         elif "none" in self.path:
             target = None
+        elif "loop" in self.path:
+            target = "https://www.google.com/url?q=x"
         else:
             target = "https://www.runnersworld.com/gear/a25750345/running-shoes-flat-feet/"
         self.send_response(302 if target else 200)
@@ -63,6 +65,17 @@ def test_no_location_is_a_failure(goto_server):
         assert resolver.resolve(f"{goto_server}/goto?url=none") is None
     finally:
         resolver.close()
+
+
+def test_a_redirect_to_googles_own_page_is_a_miss_not_a_refusal(goto_server):
+    resolver = LinkResolver(None)
+    try:
+        assert resolver.resolve(f"{goto_server}/goto?url=loop") is None
+        assert resolver.enabled
+        assert resolver.resolve(f"{goto_server}/goto?url=CAESabc") is not None
+    finally:
+        resolver.close()
+    assert resolver.failed == 1 and resolver.resolved == 1
 
 
 def test_fill_only_touches_unresolved_goto_results(goto_server):
@@ -139,6 +152,52 @@ def test_a_ping_answer_names_the_destination():
     script_only = r"<script>var redirectUrl='https://e.com/x\x3dy';</script>"
     assert ping_destination(script_only) == "https://e.com/x=y"
     assert ping_destination("<html>Loading...</html>") is None
+
+
+def interstitial(token: str) -> str:
+    """Google's "Verifying your request" page, which names the same /goto again."""
+    return (
+        f'<html><head><meta content="3;url=/goto?url={token}" http-equiv="refresh"></head>'
+        "<body><div>Verifying your request</div>"
+        '<div disabled="" role="button">Continue</div>'
+        f"<script>(function(){{var delayMillis=926;var redirectUrl='/goto?url\\x3d{token}';"
+        "})();</script></body></html>"
+    )
+
+
+def test_googles_own_redirects_are_not_destinations():
+    assert ping_destination(interstitial("AAA")) is None
+    assert ping_destination(ping_answer("https://www.google.com/goto?url=AAA")) is None
+    assert ping_destination(ping_answer("https://www.google.com/url?q=x")) is None
+    assert ping_destination(ping_answer("https://google.co.uk/url?q=x")) is None
+    assert ping_destination(ping_answer("javascript:void(0)")) is None
+    assert ping_destination(ping_answer("http://[::1/x")) is None  # malformed, not raised
+    assert ping_destination(ping_answer("https://user@/path")) is None  # no host
+    assert ping_destination(ping_answer("http://example.com:bad/path")) is None
+    assert ping_destination(ping_answer("https://example.com:70000/path")) is None
+    assert ping_destination(ping_answer("https://www.google.cat/url?q=x")) is None
+    assert ping_destination(ping_answer("https://www.google.com./goto?url=A")) is None
+    for kept in (
+        "https://www.google.com/travel/flights/flights-to-lisbon.html",
+        "https://notgoogle.com/url",
+        "https://google.example.com/goto",
+    ):
+        assert ping_destination(ping_answer(kept)) == kept
+
+
+def test_an_interstitial_or_a_redirect_back_to_google_leaves_the_link_empty():
+    answers = iter(
+        [(200, "", interstitial("AAA")), (302, "https://www.google.com/goto?url=BBB", "")]
+    )
+    resolver = LinkResolver(None, relay_factory=None)
+    results = [
+        {"link": None, "redirect_link": f"https://www.google.com/goto?url={t}"}
+        for t in ("AAA", "BBB")
+    ]
+    resolver.fill_from_pings(results, PAGE, lambda path, timeout: next(answers))
+    # Left for the /goto resolver rather than counted as resolved.
+    assert [r["link"] for r in results] == [None, None]
+    assert resolver.resolved == 0 and resolver.enabled
 
 
 def test_ping_paths_map_each_goto_href_to_its_anchors_ping():
