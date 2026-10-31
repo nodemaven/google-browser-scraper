@@ -156,13 +156,21 @@ def test_googles_own_redirects_are_not_destinations():
     assert ping_destination(interstitial("AAA")) is None
     assert ping_destination(ping_answer("https://www.google.com/goto?url=AAA")) is None
     assert ping_destination(ping_answer("https://www.google.com/url?q=x")) is None
+    assert ping_destination(ping_answer("https://google.co.uk/url?q=x")) is None
     assert ping_destination(ping_answer("javascript:void(0)")) is None
-    flights = "https://www.google.com/travel/flights/flights-to-lisbon.html"
-    assert ping_destination(ping_answer(flights)) == flights
+    assert ping_destination(ping_answer("http://[::1/x")) is None  # malformed, not raised
+    for kept in (
+        "https://www.google.com/travel/flights/flights-to-lisbon.html",
+        "https://notgoogle.com/url",
+        "https://google.example.com/goto",
+    ):
+        assert ping_destination(ping_answer(kept)) == kept
 
 
 def test_an_interstitial_or_a_redirect_back_to_google_leaves_the_link_empty():
-    answers = iter([(200, "", interstitial("AAA")), (302, "/goto?url=BBB", "")])
+    answers = iter(
+        [(200, "", interstitial("AAA")), (302, "https://www.google.com/goto?url=BBB", "")]
+    )
     resolver = LinkResolver(None, relay_factory=None)
     results = [
         {"link": None, "redirect_link": f"https://www.google.com/goto?url={t}"}
