@@ -16,6 +16,8 @@ class Handler(BaseHTTPRequestHandler):
             target = "https://www.google.com/sorry/index?continue=x"
         elif "none" in self.path:
             target = None
+        elif "loop" in self.path:
+            target = "https://www.google.com/url?q=x"
         else:
             target = "https://www.runnersworld.com/gear/a25750345/running-shoes-flat-feet/"
         self.send_response(302 if target else 200)
@@ -63,6 +65,17 @@ def test_no_location_is_a_failure(goto_server):
         assert resolver.resolve(f"{goto_server}/goto?url=none") is None
     finally:
         resolver.close()
+
+
+def test_a_redirect_to_googles_own_page_is_a_miss_not_a_refusal(goto_server):
+    resolver = LinkResolver(None)
+    try:
+        assert resolver.resolve(f"{goto_server}/goto?url=loop") is None
+        assert resolver.enabled
+        assert resolver.resolve(f"{goto_server}/goto?url=CAESabc") is not None
+    finally:
+        resolver.close()
+    assert resolver.failed == 1 and resolver.resolved == 1
 
 
 def test_fill_only_touches_unresolved_goto_results(goto_server):

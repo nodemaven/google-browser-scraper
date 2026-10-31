@@ -183,9 +183,13 @@ class LinkResolver:
                 self.failed += 1
                 self.enabled = False
             return None
+        link = _destination(location)
         with self._lock:
-            self.resolved += 1
-        return location
+            if link is None:  # a redirect to Google's own page: a miss, not a refusal
+                self.failed += 1
+            else:
+                self.resolved += 1
+        return link
 
     def fill(self, results: list[dict[str, Any]]) -> None:
         """Resolve every result that has a /goto redirect and no link yet.
