@@ -56,12 +56,28 @@ def ping_paths(page: str) -> dict[str, str]:
     return paths
 
 
+def _destination(url: str | None) -> str | None:
+    """`url` if it can be where a result leads: an absolute http(s) URL and not
+    one of Google's own redirects. Google's "Verifying your request" page names
+    the same /goto again, relative, and that is not a destination."""
+    if not url:
+        return None
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return None
+    if parts.path in ("/goto", "/url") and "google." in parts.netloc.lower():
+        return None
+    return url
+
+
 def ping_destination(body: str) -> str | None:
     """The destination named by Google's answer to a ping URL."""
     if match := _REFRESH.search(body):
-        return html.unescape(match.group(1))
+        return _destination(html.unescape(match.group(1)))
     if match := _SCRIPT.search(body):
-        return re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), match.group(1))
+        return _destination(
+            re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), match.group(1))
+        )
     return None
 
 
@@ -217,7 +233,7 @@ class LinkResolver:
                 return
             link = None
             if 300 <= status < 400:
-                link = location or None
+                link = _destination(location)
             elif status == 200:
                 link = ping_destination(body)
             with self._lock:
