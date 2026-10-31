@@ -159,6 +159,7 @@ def test_googles_own_redirects_are_not_destinations():
     assert ping_destination(ping_answer("https://google.co.uk/url?q=x")) is None
     assert ping_destination(ping_answer("javascript:void(0)")) is None
     assert ping_destination(ping_answer("http://[::1/x")) is None  # malformed, not raised
+    assert ping_destination(ping_answer("https://user@/path")) is None  # no host
     for kept in (
         "https://www.google.com/travel/flights/flights-to-lisbon.html",
         "https://notgoogle.com/url",
