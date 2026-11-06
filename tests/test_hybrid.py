@@ -300,6 +300,8 @@ def test_a_query_word_matches_a_title_word_split_by_a_slash_hyphen_or_dot():
     # Two of three words are needed, and one of them only matches joined up.
     assert quality.relevance("nodejs streams tips", ["Node.js Streams explained"]) == 1.0
     assert quality.relevance("email marketing tips", ["E-mail tips"]) == 1.0
+    # A joined query term finds its closed-up form, for each of its words.
+    assert quality.relevance("learn pub/sub", ["PubSub basics"]) == 1.0
     # Closing up a joiner does not glue separate words together, nor two numbers.
     assert quality.relevance("redissub", ["Redis Sub notes"]) == 0.0
     assert quality.relevance("1235 cars sold", ["1.235 sold in total"]) == 0.0

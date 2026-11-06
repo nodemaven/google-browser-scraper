@@ -149,6 +149,45 @@ def test_an_answer_that_starts_like_the_label_is_kept():
     assert parsed["ai_overview"] == {"text": answer}
 
 
+def test_the_replied_label_goes_but_an_answer_in_its_element_stays():
+    block = (
+        pages.ai_overview_block()
+        .replace(
+            '<span class="hidden">AI Mode reply for swimming</span>',
+            "",
+        )
+        .replace(
+            f"<div><span>{pages.AI_ANSWER}</span></div>",
+            f"<div>AI Mode replied: {pages.AI_ANSWER}</div>",
+        )
+    )
+    parsed = parse_serp(pages.results_page(ai_overview=block))
+    assert parsed["ai_overview"] == {"text": pages.AI_ANSWER}
+
+
+def test_a_label_with_a_no_break_space_is_left_out():
+    block = pages.ai_overview_block().replace(
+        '<span class="hidden">AI Mode reply for swimming</span>',
+        '<h3 class="MheKwc">AI Mode\u00a0replied:</h3>',
+    )
+    parsed = parse_serp(pages.results_page(ai_overview=block))
+    assert parsed["ai_overview"] == {"text": pages.AI_ANSWER}
+
+
+def test_the_label_does_not_count_towards_the_length_of_an_inner_block():
+    # The inner block holds the label and too little answer to stand alone; the
+    # rest of the answer is one level up.
+    head, tail = pages.AI_ANSWER[:180], pages.AI_ANSWER[180:]
+    block = (
+        '<div class="outer"><div class="inner">'
+        '<div role="heading"><strong>AI Overview</strong></div>'
+        f'<h3 class="MheKwc">AI Mode replied:</h3><span>{head}</span></div>'
+        f"<span>{tail}</span></div>"
+    )
+    parsed = parse_serp(pages.results_page(ai_overview=block))
+    assert parsed["ai_overview"]["text"].replace(" ", "") == pages.AI_ANSWER.replace(" ", "")
+
+
 def test_no_ai_overview_is_an_empty_block():
     assert parse_serp(pages.results_page())["ai_overview"] == {}
 
