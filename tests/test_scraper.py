@@ -1376,9 +1376,26 @@ def test_warm_ups_after_the_donors_are_spent_still_stop_on_the_breaker():
     with pytest.raises(ExitsRefused):
         list(scraper([[REFUSED] for _ in range(9)], settings).run(["a"]))
     used = [s.options.get("cookies") for s in FakeSession.opened]
-    # Two refusals spend the one set and reset the count; three warm-ups in a
+    # Two refusals spend the one set and do not count; three warm-ups in a
     # row refused stop the run.
-    assert used == [DONOR, DONOR, None, None]
+    assert used == [DONOR, DONOR, None, None, None]
+
+
+def test_refusals_of_exits_from_cookie_sets_do_not_stop_the_run_before_the_warm_ups():
+    sets = tuple(
+        ({"name": "NID", "value": str(i), "domain": ".google.com", "path": "/"},) for i in range(4)
+    )
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        breaker=3,
+        max_exits_per_query=10,
+        donors=sets,
+    )
+    records = list(scraper([[REFUSED] for _ in range(8)] + [[SERVED]], settings).run(["a"]))
+    assert [r["search_metadata"]["status"] for r in records] == ["Success"]
+    used = [s.options.get("cookies") for s in FakeSession.opened]
+    assert used == [sets[0], sets[0], sets[1], sets[1], sets[2], sets[2], sets[3], sets[3], None]
 
 
 def test_a_renewal_brings_spent_donors_back():

@@ -510,17 +510,18 @@ class Donors:
                 self._refused = 0
                 self._spent = 0
 
-    def refused(self, index: int, generation: int, emit: Callable[[dict], None]) -> bool:
-        """Count a first query refused on a set; True when that leaves no set
-        in use, so new exits warm up again."""
+    def refused(self, index: int, generation: int, emit: Callable[[dict], None]) -> str:
+        """Count a first query refused on a set: "stale" for an exit from a set
+        already left behind or replaced, which is not counted; "spent" when
+        this leaves no set in use, so new exits warm up again; else "counted"."""
         with self._lock:
             if self._spent >= len(self.sets):
-                return False  # already out of sets
+                return "stale"  # already out of sets
             if (index, generation) != (self._at, self._generation[index]):
-                return False  # an exit from a set already left behind or replaced
+                return "stale"
             self._refused += 1
             if self._refused < DONOR_REFUSALS:
-                return False
+                return "counted"
             self._refused = 0
             self._spent += 1
             if self._spent >= len(self.sets):
@@ -531,10 +532,10 @@ class Donors:
                         "after_refusals": DONOR_REFUSALS,
                     }
                 )
-                return True
+                return "spent"
             self._at = (self._at + 1) % len(self.sets)
             emit({"event": "donor_switched", "to": self._at, "after_refusals": DONOR_REFUSALS})
-            return False
+            return "counted"
 
     def renew(self, cookies: tuple[dict, ...], source: str, emit: Callable[[dict], None]) -> None:
         """Take fresher cookies from a served exit as the set in use. An exit
@@ -1100,20 +1101,22 @@ class Scraper:
             if identity.clone and identity.queries == 1 and verdict.refused:
                 # Copies are refused together with the profile they came from.
                 self._templates.copy_refused(identity.template, self._emit, identity.clone_cache)
-            if (
-                identity.donor is not None
-                and identity.queries == 1
-                and verdict.refused
-                and self._donors.refused(identity.donor, identity.donor_generation, self._emit)
-            ):
-                # Every cookie set refused: new exits warm up again, and the
-                # breaker counts from this exit on, so the warm-ups get their
-                # own chance before the run stops.
-                self._breaker.reset()
+            donor = None
+            if identity.donor is not None and identity.queries == 1 and verdict.refused:
+                donor = self._donors.refused(identity.donor, identity.donor_generation, self._emit)
             last_verdict, last_error = verdict, None
             self.stats.exits_refused += verdict.refused
             self._retire(verdict.kind)
-            self._count_failure()
+            if donor == "spent":
+                # Every cookie set refused: new exits warm up again, and the
+                # breaker counts the warm-ups from zero.
+                self._breaker.reset()
+            elif donor != "counted":
+                # An exit from a cookie set costs next to nothing, and the
+                # sets' own limit (DONOR_REFUSALS each) bounds how many are
+                # tried; counting them too would trip the breaker before
+                # every set had been tried and the warm-ups reached.
+                self._count_failure()
         self.stats.queries_failed += 1
         reason = last_verdict.reason if last_verdict else "unknown"
         yield build_record(
