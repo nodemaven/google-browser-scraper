@@ -40,6 +40,13 @@ def _words(query: str) -> list[str]:
     return [_stem(w) for w in found if w not in STOP_WORDS and len(w) > 2]
 
 
+#: A slash, hyphen or dot inside a word ("Pub/Sub", "e-mail", "Node.js"), not
+#: between two digits ("3.5", "24/7"), where closing up would make a new number.
+_JOINER = re.compile(r"(?<=[^\W\d_])[/.\-](?=[^\W_])|(?<=\d)[/.\-](?=[^\W\d_])")
+#: A query term made of words joined that way.
+_JOINED = re.compile(r"[^\W_]+(?:[/.\-][^\W_]+)+")
+
+
 def relevance(query: str, titles: list[str]) -> float:
     """Share of titles holding at least half of the query's content words; 1.0
     when there is nothing to compare."""
@@ -50,9 +57,32 @@ def relevance(query: str, titles: list[str]) -> float:
     # At the start of a title word, so "cat" is not found in "education"; a
     # prefix is enough because the query word is stemmed.
     found = [re.compile(r"(?<![^\W_])" + re.escape(w)) for w in words]
-    return sum(1 for t in titles if sum(bool(f.search(t.lower())) for f in found) >= need) / len(
-        titles
-    )
+    # A query term written with a joiner ("pub/sub") is also looked for closed
+    # up ("PubSub"), and finding it that way counts for each of its words.
+    joined = []
+    for term in _JOINED.findall(query.lower()):
+        parts = _JOINER.split(term)
+        if len(parts) > 1:
+            # Each part stemmed on its own: stemming the closed-up word could
+            # cut a whole part off ("foo/ing" -> "fooing" -> "foo").
+            closed = "".join(_stem(part) for part in parts)
+            joined.append((re.compile(r"(?<![^\W_])" + re.escape(closed)), _words(term)))
+
+    def hits(title: str) -> int:
+        # The title as written and with its in-word joiners closed up, so
+        # "pubsub" finds "Pub/Sub" and "nodejs" finds "Node.js".
+        forms = (title.lower(), _JOINER.sub("", title.lower()))
+        hit = [any(f.search(form) for form in forms) for f in found]
+        for pattern, parts in joined:
+            if any(pattern.search(form) for form in forms):
+                for part in parts:
+                    for i, word in enumerate(words):
+                        if word == part and not hit[i]:
+                            hit[i] = True
+                            break
+        return sum(hit)
+
+    return sum(1 for t in titles if hits(t) >= need) / len(titles)
 
 
 def unrelated(query: str, titles: list[str]) -> bool | None:
