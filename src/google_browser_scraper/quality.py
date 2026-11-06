@@ -61,9 +61,12 @@ def relevance(query: str, titles: list[str]) -> float:
     # up ("PubSub"), and finding it that way counts for each of its words.
     joined = []
     for term in _JOINED.findall(query.lower()):
-        closed = _JOINER.sub("", term)
-        if closed != term:
-            joined.append((re.compile(r"(?<![^\W_])" + re.escape(_stem(closed))), _words(term)))
+        parts = _JOINER.split(term)
+        if len(parts) > 1:
+            # Each part stemmed on its own: stemming the closed-up word could
+            # cut a whole part off ("foo/ing" -> "fooing" -> "foo").
+            closed = "".join(_stem(part) for part in parts)
+            joined.append((re.compile(r"(?<![^\W_])" + re.escape(closed)), _words(term)))
 
     def hits(title: str) -> int:
         # The title as written and with its in-word joiners closed up, so

@@ -177,7 +177,8 @@ def test_a_label_with_a_no_break_space_is_left_out():
 def test_the_label_does_not_count_towards_the_length_of_an_inner_block():
     # The inner block holds the label and too little answer to stand alone; the
     # rest of the answer is one level up.
-    head, tail = pages.AI_ANSWER[:180], pages.AI_ANSWER[180:]
+    cut = pages.AI_ANSWER.rfind(" ", 0, 180)  # at a word boundary
+    head, tail = pages.AI_ANSWER[:cut], pages.AI_ANSWER[cut + 1 :]
     block = (
         '<div class="outer"><div class="inner">'
         '<div role="heading"><strong>AI Overview</strong></div>'
@@ -185,11 +186,12 @@ def test_the_label_does_not_count_towards_the_length_of_an_inner_block():
         f"<span>{tail}</span></div>"
     )
     parsed = parse_serp(pages.results_page(ai_overview=block))
-    assert parsed["ai_overview"]["text"].replace(" ", "") == pages.AI_ANSWER.replace(" ", "")
+    assert " ".join(parsed["ai_overview"]["text"].split()) == pages.AI_ANSWER
 
 
 def test_the_heading_does_not_count_towards_the_length_of_an_inner_block():
-    head, tail = pages.AI_ANSWER[:195], pages.AI_ANSWER[195:]
+    cut = pages.AI_ANSWER.rfind(" ", 0, 195)  # at a word boundary
+    head, tail = pages.AI_ANSWER[:cut], pages.AI_ANSWER[cut + 1 :]
     block = (
         '<div class="outer"><div class="inner">'
         '<div role="heading"><strong>AI Overview</strong></div>'
@@ -197,7 +199,7 @@ def test_the_heading_does_not_count_towards_the_length_of_an_inner_block():
         f"<span>{tail}</span></div>"
     )
     parsed = parse_serp(pages.results_page(ai_overview=block))
-    assert parsed["ai_overview"]["text"].replace(" ", "") == pages.AI_ANSWER.replace(" ", "")
+    assert " ".join(parsed["ai_overview"]["text"].split()) == pages.AI_ANSWER
 
 
 def test_no_ai_overview_is_an_empty_block():
