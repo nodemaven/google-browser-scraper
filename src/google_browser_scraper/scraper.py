@@ -272,7 +272,8 @@ class Settings:
     #: instead of walking the warm-up: it carries Google's trust to a new IP,
     #: even one on another machine, and costs no traffic. After
     #: DONOR_REFUSALS exits in a row refused on their first query, the next set
-    #: takes over.
+    #: takes over; once every set has been refused that way, new exits warm up
+    #: again until a renewal (`renew_donors_every`) brings a set back.
     donors: tuple[tuple[dict, ...], ...] = ()
     #: Every this many served queries on an exit, its Google cookies replace
     #: the cookie set in use, so the sets stay as fresh as the exits serving
@@ -466,8 +467,10 @@ class Templates:
 
 class Donors:
     """The cookie sets new exits start from, used one at a time, moving on to
-    the next after DONOR_REFUSALS first queries refused in a row. One instance
-    serves every worker of a run (see `Pool`).
+    the next after DONOR_REFUSALS first queries refused in a row. Once every
+    set has been refused that way with nothing served in between, there is no
+    set in use and new exits warm up again, until a served exit renews a set
+    or a set is served. One instance serves every worker of a run (see `Pool`).
 
     Each slot carries a generation, bumped when a renewal replaces its set, so
     an exit started from the set a slot held before does not count against
@@ -488,12 +491,16 @@ class Donors:
         self._clock = 0
         self._at = 0
         self._refused = 0
+        #: Sets refused DONOR_REFUSALS times in a row since a set was last
+        #: served or renewed; at len(sets) there is no set in use.
+        self._spent = 0
         self._lock = threading.Lock()
 
     def current(self) -> tuple[int, int, tuple[dict, ...]] | None:
-        """The slot in use, its generation and its set; None without sets."""
+        """The slot in use, its generation and its set; None without sets or
+        once every set has been refused."""
         with self._lock:
-            if not self.sets:
+            if not self.sets or self._spent >= len(self.sets):
                 return None
             return self._at, self._generation[self._at], self.sets[self._at]
 
@@ -501,16 +508,33 @@ class Donors:
         with self._lock:
             if (index, generation) == (self._at, self._generation[index]):
                 self._refused = 0
+                self._spent = 0
 
-    def refused(self, index: int, generation: int, emit: Callable[[dict], None]) -> None:
+    def refused(self, index: int, generation: int, emit: Callable[[dict], None]) -> bool:
+        """Count a first query refused on a set; True when that leaves no set
+        in use, so new exits warm up again."""
         with self._lock:
+            if self._spent >= len(self.sets):
+                return False  # already out of sets
             if (index, generation) != (self._at, self._generation[index]):
-                return  # an exit from a set already left behind or replaced
+                return False  # an exit from a set already left behind or replaced
             self._refused += 1
-            if self._refused >= DONOR_REFUSALS and len(self.sets) > 1:
-                self._at = (self._at + 1) % len(self.sets)
-                self._refused = 0
-                emit({"event": "donor_switched", "to": self._at, "after_refusals": DONOR_REFUSALS})
+            if self._refused < DONOR_REFUSALS:
+                return False
+            self._refused = 0
+            self._spent += 1
+            if self._spent >= len(self.sets):
+                emit(
+                    {
+                        "event": "donors_spent",
+                        "sets": len(self.sets),
+                        "after_refusals": DONOR_REFUSALS,
+                    }
+                )
+                return True
+            self._at = (self._at + 1) % len(self.sets)
+            emit({"event": "donor_switched", "to": self._at, "after_refusals": DONOR_REFUSALS})
+            return False
 
     def renew(self, cookies: tuple[dict, ...], source: str, emit: Callable[[dict], None]) -> None:
         """Take fresher cookies from a served exit as the set in use. An exit
@@ -538,6 +562,7 @@ class Donors:
             self._source[at] = source
             self._at = at
             self._refused = 0
+            self._spent = 0
             # Written under the lock: workers renewing at once would otherwise
             # race on the slot's file.
             error = self._write(at, cookies) if self.out else None
@@ -1075,8 +1100,16 @@ class Scraper:
             if identity.clone and identity.queries == 1 and verdict.refused:
                 # Copies are refused together with the profile they came from.
                 self._templates.copy_refused(identity.template, self._emit, identity.clone_cache)
-            if identity.donor is not None and identity.queries == 1 and verdict.refused:
-                self._donors.refused(identity.donor, identity.donor_generation, self._emit)
+            if (
+                identity.donor is not None
+                and identity.queries == 1
+                and verdict.refused
+                and self._donors.refused(identity.donor, identity.donor_generation, self._emit)
+            ):
+                # Every cookie set refused: new exits warm up again, and the
+                # breaker counts from this exit on, so the warm-ups get their
+                # own chance before the run stops.
+                self._breaker.reset()
             last_verdict, last_error = verdict, None
             self.stats.exits_refused += verdict.refused
             self._retire(verdict.kind)

@@ -1343,6 +1343,62 @@ class CookieSession(FakeSession):
         return self.jar
 
 
+def test_once_every_donor_is_refused_new_exits_warm_up_and_the_breaker_starts_again():
+    events = []
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        breaker=4,
+        max_exits_per_query=6,
+        donors=(DONOR, OTHER),
+    )
+    records = list(
+        scraper([[REFUSED] for _ in range(4)] + [[SERVED]], settings, events=events).run(["a"])
+    )
+    assert [r["search_metadata"]["status"] for r in records] == ["Success"]
+    used = [s.options.get("cookies") for s in FakeSession.opened]
+    assert used == [DONOR, DONOR, OTHER, OTHER, None]
+    warmed = FakeSession.opened[-1]
+    assert len(warmed.visited) == 6
+    assert [e for e in events if e["event"] == "donors_spent"] == [
+        {"event": "donors_spent", "sets": 2, "after_refusals": 2}
+    ]
+
+
+def test_warm_ups_after_the_donors_are_spent_still_stop_on_the_breaker():
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        breaker=3,
+        max_exits_per_query=9,
+        donors=(DONOR,),
+    )
+    with pytest.raises(ExitsRefused):
+        list(scraper([[REFUSED] for _ in range(9)], settings).run(["a"]))
+    used = [s.options.get("cookies") for s in FakeSession.opened]
+    # Two refusals spend the one set and reset the count; three warm-ups in a
+    # row refused stop the run.
+    assert used == [DONOR, DONOR, None, None]
+
+
+def test_a_renewal_brings_spent_donors_back():
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        breaker=5,
+        max_queries_per_exit=1,
+        donors=(DONOR,),
+        renew_donors_every=1,
+    )
+    list(
+        scraper([[REFUSED], [REFUSED], [SERVED], [SERVED]], settings, cls=CookieSession).run(
+            ["a", "b"]
+        )
+    )
+    used = [s.options.get("cookies") for s in FakeSession.opened]
+    assert used == [DONOR, DONOR, None, CookieSession.jar]
+
+
 def test_a_served_exit_renews_the_donor_set_and_writes_it_out(tmp_path):
     import json as _json
 
