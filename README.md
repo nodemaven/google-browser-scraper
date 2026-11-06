@@ -379,7 +379,7 @@ The defaults come from measurements in
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |
 | `--no-clone-cache` | | Copies carry cookies only, not the browser cache |
-| `--cookies FILE` | | Start every new proxy IP from the Google cookies in FILE instead of a warm-up; repeat for more files, the next one taking over after two proxy IPs in a row are refused on their first query, and warm-ups again once every file has been. Turns `--clone` off |
+| `--cookies FILE` | | Start every new proxy IP from the Google cookies in FILE instead of a warm-up; repeat for more files, the next one taking over after two proxy IPs in a row are refused on their first query, and warm-ups again once every file has been refused that way. Turns `--clone` off |
 | `--renew-cookies N` | 0 | Every N served queries, a proxy IP's Google cookies become the set new proxy IPs start from; `0` is off. Turns `--clone` off |
 | `--cookies-out DIR` | | Write each renewed cookie set to DIR, for the next run's `--cookies` |
 | `--warmup` | `L3` | Pages a fresh proxy IP opens before its first query: `L3`, `light` (without Google Trends: much less traffic, served on the first query less often), `L2`, `L1`, `off` |

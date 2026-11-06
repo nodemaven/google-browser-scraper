@@ -241,6 +241,33 @@ def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
         load_cookies(str(f))
 
 
+def test_load_cookies_refuses_malformed_fields_before_a_browser_starts(tmp_path):
+    import json
+
+    from google_browser_scraper.browser import load_cookies
+
+    f = tmp_path / "donor.json"
+    nid = {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"}
+    for bad in (
+        {"expires": None},
+        {"expires": "soon"},
+        {"expires": True},
+        {"httpOnly": "yes"},
+        {"secure": 1},
+        {"sameSite": "lax"},
+    ):
+        f.write_text(json.dumps([{**nid, **bad}]), encoding="utf-8")
+        with pytest.raises(ValueError, match="malformed"):
+            load_cookies(str(f))
+    good = {**nid, "expires": -1, "httpOnly": True, "secure": True, "sameSite": "None"}
+    f.write_text(json.dumps([good]), encoding="utf-8")
+    assert load_cookies(str(f)) == (good,)
+    # A cookie that is dropped anyway is not judged.
+    other = {"name": "x", "value": "1", "domain": ".example.com", "expires": None}
+    f.write_text(json.dumps([nid, other]), encoding="utf-8")
+    assert load_cookies(str(f)) == (nid,)
+
+
 def test_load_cookies_drops_lookalike_domains_and_needs_a_live_nid(tmp_path):
     import json
 

@@ -255,7 +255,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         help="start every new proxy IP with the Google cookies in FILE (JSON) instead of "
         "warming it up; repeat for more files, the next one taking over after two proxy "
         "IPs in a row are refused on their first query, and warm-ups again once every "
-        "file has been; turns --clone off",
+        "file has been refused that way; turns --clone off",
     )
     p.add_argument(
         "--renew-cookies",

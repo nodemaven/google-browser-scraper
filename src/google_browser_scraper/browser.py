@@ -25,6 +25,8 @@ HOME_URL = "https://www.google.com/?hl=en"
 
 
 COOKIE_KEYS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite")
+#: The values the browser takes for a cookie's sameSite.
+SAME_SITE = ("Strict", "Lax", "None")
 
 
 def google_cookie(cookie: dict) -> bool:
@@ -59,7 +61,20 @@ def load_cookies(path: str) -> tuple[dict, ...]:
             raise ValueError(f"{path}: every cookie needs name, value and domain")
         if not google_cookie(c):
             continue
-        if 0 < c.get("expires", -1) < time.time():
+        expires = c.get("expires", -1)
+        if (
+            isinstance(expires, bool)
+            or not isinstance(expires, (int, float))
+            or any(not isinstance(c.get(k, False), bool) for k in ("httpOnly", "secure"))
+            or c.get("sameSite", "Lax") not in SAME_SITE
+        ):
+            # Refused here rather than by the browser, after a proxy IP and a
+            # browser have been started for it.
+            raise ValueError(
+                f"{path}: cookie {c['name']!r} has a malformed expires, httpOnly, "
+                "secure or sameSite"
+            )
+        if 0 < expires < time.time():
             continue  # already expired; the browser would drop it anyway
         cookie = {k: c[k] for k in COOKIE_KEYS if k in c}
         cookie.setdefault("path", "/")
