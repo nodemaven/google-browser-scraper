@@ -134,6 +134,15 @@ def test_ai_overview_text_without_heading_label_interface_or_script():
     assert len(parsed["organic_results"]) == 3
 
 
+def test_ai_overview_leaves_out_the_ai_mode_replied_label():
+    block = pages.ai_overview_block().replace(
+        '<span class="hidden">AI Mode reply for swimming</span>',
+        '<h3 class="MheKwc">AI Mode replied:</h3>',
+    )
+    parsed = parse_serp(pages.results_page(ai_overview=block))
+    assert parsed["ai_overview"] == {"text": pages.AI_ANSWER}
+
+
 def test_no_ai_overview_is_an_empty_block():
     assert parse_serp(pages.results_page())["ai_overview"] == {}
 

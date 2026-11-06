@@ -401,12 +401,13 @@ _HIDDEN_PARTS = (
 
 def _visible_text(el, *, skip_label: bool = False) -> str:
     """Text of an element without scripts, styles and (optionally) the hidden
-    "AI Mode reply for ..." label Google puts before the answer."""
+    label Google puts before the answer ("AI Mode reply for ...", "AI Mode
+    replied:")."""
     el = copy.deepcopy(el)
     for node in el.xpath(".//script|.//style"):
         node.drop_tree()
     if skip_label:
-        for node in el.xpath(".//*[starts-with(normalize-space(text()), 'AI Mode reply for')]"):
+        for node in el.xpath(".//*[starts-with(normalize-space(text()), 'AI Mode repl')]"):
             node.drop_tree()
         # Panels the block opens on demand - sharing, feedback, a "copied"
         # notice - are dialogs, menus and status lines. Hidden parts are not

@@ -40,6 +40,10 @@ def _words(query: str) -> list[str]:
     return [_stem(w) for w in found if w not in STOP_WORDS and len(w) > 2]
 
 
+#: A slash, hyphen or dot inside a word ("Pub/Sub", "e-mail", "Node.js").
+_JOINER = re.compile(r"(?<=[^\W_])[/.\-](?=[^\W_])")
+
+
 def relevance(query: str, titles: list[str]) -> float:
     """Share of titles holding at least half of the query's content words; 1.0
     when there is nothing to compare."""
@@ -50,9 +54,14 @@ def relevance(query: str, titles: list[str]) -> float:
     # At the start of a title word, so "cat" is not found in "education"; a
     # prefix is enough because the query word is stemmed.
     found = [re.compile(r"(?<![^\W_])" + re.escape(w)) for w in words]
-    return sum(1 for t in titles if sum(bool(f.search(t.lower())) for f in found) >= need) / len(
-        titles
-    )
+
+    def hits(title: str) -> int:
+        # The title as written and with its in-word joiners closed up, so
+        # "pubsub" finds "Pub/Sub" and "nodejs" finds "Node.js".
+        forms = (title.lower(), _JOINER.sub("", title.lower()))
+        return sum(any(f.search(form) for form in forms) for f in found)
+
+    return sum(1 for t in titles if hits(t) >= need) / len(titles)
 
 
 def unrelated(query: str, titles: list[str]) -> bool | None:
