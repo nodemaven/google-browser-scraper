@@ -188,6 +188,18 @@ def test_the_label_does_not_count_towards_the_length_of_an_inner_block():
     assert parsed["ai_overview"]["text"].replace(" ", "") == pages.AI_ANSWER.replace(" ", "")
 
 
+def test_the_heading_does_not_count_towards_the_length_of_an_inner_block():
+    head, tail = pages.AI_ANSWER[:195], pages.AI_ANSWER[195:]
+    block = (
+        '<div class="outer"><div class="inner">'
+        '<div role="heading"><strong>AI Overview</strong></div>'
+        f"<span>{head}</span></div>"
+        f"<span>{tail}</span></div>"
+    )
+    parsed = parse_serp(pages.results_page(ai_overview=block))
+    assert parsed["ai_overview"]["text"].replace(" ", "") == pages.AI_ANSWER.replace(" ", "")
+
+
 def test_no_ai_overview_is_an_empty_block():
     assert parse_serp(pages.results_page())["ai_overview"] == {}
 

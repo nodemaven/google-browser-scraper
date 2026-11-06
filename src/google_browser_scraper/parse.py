@@ -231,15 +231,19 @@ def _ai_overview(root) -> dict[str, Any]:
         # results' text.
         if block is None or block.xpath(".//a[.//h3]"):
             return {}
-        # Measured as returned, without the label, so a label does not make an
-        # inner block look long enough while the rest of the answer is outside it.
-        if len(_visible_text(block, skip_label=True)) >= _AI_MIN_TEXT:
+        # Measured as returned, without the heading and the label, so neither
+        # makes an inner block look long enough while the answer goes on outside it.
+        if len(_overview_text(block)) >= _AI_MIN_TEXT:
             break
     else:
         return {}
-    text = _visible_text(block, skip_label=True)
-    text = text.removeprefix("AI Overview").strip()
+    text = _overview_text(block)
     return {"text": text} if len(text) >= _AI_MIN_TEXT else {}
+
+
+def _overview_text(block) -> str:
+    """The answer text of an AI Overview block, without its heading and label."""
+    return _visible_text(block, skip_label=True).removeprefix("AI Overview").strip()
 
 
 _RATING = re.compile(r"(\d+(?:[.,]\d+)?)")
