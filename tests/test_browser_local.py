@@ -153,6 +153,10 @@ def test_donor_cookies_are_in_the_browser_before_the_first_page_and_survive_a_re
     # Google's cookies carry an expiry; a session cookie would not outlive the restart.
     import time
 
+    try:
+        browser.BrowserSession(None, headless=True).__enter__().close()
+    except Exception as exc:  # browser binary missing on this machine
+        pytest.skip(f"no Patchright browser: {exc}")
     donor = [
         {
             "name": "NID",
@@ -162,15 +166,14 @@ def test_donor_cookies_are_in_the_browser_before_the_first_page_and_survive_a_re
             "expires": time.time() + 86400,
         }
     ]
+    session = browser.BrowserSession(None, headless=True, cookies=donor).__enter__()
     try:
-        session = browser.BrowserSession(None, headless=True, cookies=donor).__enter__()
-    except Exception as exc:  # browser binary missing on this machine
-        pytest.skip(f"no Patchright browser: {exc}")
-    try:
-        names = lambda: {c["name"]: c["value"] for c in session._context.cookies()}  # noqa: E731
-        assert names().get("NID") == "donor"
+        fakegoogle.COOKIES_SEEN.clear()
+        session.visit(local_google + "/", 0)
+        assert "NID=donor" in fakegoogle.COOKIES_SEEN[0]  # sent with the very first page
         session.suspend()
         session.resume()
-        assert names().get("NID") == "donor"
+        session.visit(local_google + "/", 0)
+        assert "NID=donor" in fakegoogle.COOKIES_SEEN[-1]
     finally:
         session.close()

@@ -251,14 +251,14 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--cookies",
         metavar="FILE",
-        nargs="+",
+        action="append",
         help="start every new proxy IP with the Google cookies in FILE (JSON) instead of "
-        "warming it up; with several files, the next one takes over after two proxy IPs "
-        "in a row are refused on their first query; turns --clone off",
+        "warming it up; repeat for more files, the next one taking over after two proxy "
+        "IPs in a row are refused on their first query; turns --clone off",
     )
     p.add_argument(
         "--renew-cookies",
-        type=int,
+        type=_non_negative,
         default=0,
         metavar="N",
         help="every N served queries on a proxy IP, its Google cookies replace the set new "
@@ -476,6 +476,16 @@ def _html_dir(folder: Path | None, worker: int | None) -> str | None:
     if folder is None:
         return None
     return str(folder if worker is None else folder / f"w{worker}")
+
+
+def _non_negative(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected a whole number") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError("must be 0 or more")
+    return value
 
 
 def _pair(text: str) -> tuple[float, float]:

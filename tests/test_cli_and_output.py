@@ -239,3 +239,34 @@ def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
     f.write_text(json.dumps([{"value": "1", "domain": ".google.com"}]), encoding="utf-8")
     with pytest.raises(ValueError, match="name, value and domain"):
         load_cookies(str(f))
+
+
+def test_load_cookies_drops_lookalike_domains_and_needs_a_live_nid(tmp_path):
+    import json
+
+    from google_browser_scraper.browser import load_cookies
+
+    f = tmp_path / "donor.json"
+    nid = {"name": "NID", "value": "v", "domain": ".google.de", "path": "/"}
+    lookalikes = [
+        {"name": "NID", "value": "x", "domain": d, "path": "/"}
+        for d in (".notgoogle.com", ".google.com.evil.net", ".google.example.com")
+    ]
+    f.write_text(json.dumps([nid, *lookalikes]), encoding="utf-8")
+    assert load_cookies(str(f)) == (nid,)
+    f.write_text(
+        json.dumps([{"name": "AEC", "value": "a", "domain": ".google.com", "path": "/"}]),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="no live NID"):
+        load_cookies(str(f))
+
+
+def test_cookies_is_repeatable_and_leaves_the_queries_alone():
+    parser = cli._parser()
+    args = parser.parse_args(["search", "--cookies", "a.json", "best pizza", "--no-proxy"])
+    assert args.cookies == ["a.json"] and args.queries == ["best pizza"]
+    args = parser.parse_args(["search", "q", "--cookies", "a.json", "--cookies", "b.json"])
+    assert args.cookies == ["a.json", "b.json"]
+    with pytest.raises(SystemExit):
+        parser.parse_args(["search", "q", "--renew-cookies", "-1"])

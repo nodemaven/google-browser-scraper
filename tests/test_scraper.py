@@ -1399,13 +1399,79 @@ def test_renewals_fill_slots_then_overwrite_the_oldest_and_the_newest_is_used():
     events = []
     sets = [({"name": "NID", "value": str(i), "domain": ".google.com"},) for i in range(4)]
     d = Donors((), slots=3)
-    for s_ in sets:
-        d.renew(s_, events.append)
+    for i, s_ in enumerate(sets):
+        d.renew(s_, f"exit{i}", events.append)
     assert d.sets == [sets[3], sets[1], sets[2]]
-    assert d.current() == (0, sets[3])
-    d.refused(0, events.append)
-    d.refused(0, events.append)
-    assert d.current() == (1, sets[1])
+    assert d.current() == (0, 2, sets[3])  # slot 0's second set
+    d.refused(0, 2, events.append)
+    d.refused(0, 2, events.append)
+    assert d.current() == (1, 1, sets[1])
+
+
+def test_an_exit_renewing_again_replaces_its_own_set():
+    from google_browser_scraper.scraper import Donors
+
+    a, b = (({"name": "NID", "value": v, "domain": ".google.com"},) for v in "ab")
+    d = Donors((), slots=3)
+    d.renew(a, "exit0", lambda e: None)
+    d.renew(b, "exit0", lambda e: None)
+    assert d.sets == [b] and d.current() == (0, 2, b)
+
+
+def test_refusals_of_exits_from_a_replaced_set_do_not_count_against_the_new_one():
+    from google_browser_scraper.scraper import Donors
+
+    s0, s1, fresh = (({"name": "NID", "value": v, "domain": ".google.com"},) for v in "01f")
+    d = Donors((s0, s1), slots=2)
+    assert d.current() == (0, 0, s0)  # an exit starts from slot 0, generation 0
+    d.renew(fresh, "exit9", lambda e: None)  # slot 0 now holds a new set
+    d.refused(0, 0, lambda e: None)
+    d.refused(0, 0, lambda e: None)
+    assert d.current() == (0, 1, fresh)
+    d.refused(0, 1, lambda e: None)
+    d.refused(0, 1, lambda e: None)
+    assert d.current() == (1, 0, s1)
+
+
+def test_a_set_that_cannot_be_written_is_still_used(tmp_path):
+    from google_browser_scraper.scraper import Donors
+
+    blocked = tmp_path / "not-a-dir"
+    blocked.write_text("x", encoding="utf-8")
+    events = []
+    d = Donors((), out=str(blocked))
+    d.renew(DONOR, "exit0", events.append)
+    assert d.current() == (0, 1, DONOR)
+    assert [e["event"] for e in events] == ["donor_renewed", "donor_write_failed"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="file modes are POSIX")
+def test_a_written_set_is_readable_by_its_owner_only(tmp_path):
+    from google_browser_scraper.scraper import Donors
+
+    Donors((), out=str(tmp_path)).renew(DONOR, "exit0", lambda e: None)
+    assert (tmp_path / "donor_0.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_renewal_counts_served_queries_not_their_pages():
+    events = []
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        pages=2,
+        donors=(DONOR,),
+        renew_donors_every=2,
+    )
+    list(scraper([[SERVED] * 4], settings, events=events, cls=CookieSession).run(["a", "b"]))
+    assert [e["event"] for e in events].count("donor_renewed") == 1
+
+
+def test_cookie_sets_turn_copies_off_and_a_negative_renewal_is_refused():
+    assert Settings(donors=(DONOR,), clones=3).clones == 0
+    assert Settings(renew_donors_every=5, clones=3).clones == 0
+    assert Settings(clones=3).clones == 3
+    with pytest.raises(ValueError, match="renew_donors_every"):
+        Settings(renew_donors_every=-1)
 
 
 def test_an_exit_whose_http_side_gave_up_is_replaced_when_there_are_donors():

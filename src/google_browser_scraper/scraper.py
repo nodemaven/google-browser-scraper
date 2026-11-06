@@ -296,6 +296,11 @@ class Settings:
             raise ValueError("clone_max_age must be positive")
         if self.restart_every < 0:
             raise ValueError("restart_every must be 0 or more")
+        if self.renew_donors_every < 0:
+            raise ValueError("renew_donors_every must be 0 or more")
+        if self.donors or self.renew_donors_every:
+            # Exits start from cookie sets instead of copies of a served profile.
+            self.clones = 0
         if self.clone_refusals < 1:
             raise ValueError("clone_refusals must be at least 1")
         if self.clone_refusals > 1 and self.clone_refusals >= self.breaker:
@@ -460,7 +465,12 @@ class Templates:
 
 class Donors:
     """The cookie sets new exits start from, used one at a time, moving on to
-    the next after DONOR_REFUSALS first queries refused in a row."""
+    the next after DONOR_REFUSALS first queries refused in a row. One instance
+    serves every worker of a run (see `Pool`).
+
+    Each slot carries a generation, bumped when a renewal replaces its set, so
+    an exit started from the set a slot held before does not count against
+    the set it holds now."""
 
     def __init__(
         self, sets: tuple[tuple[dict, ...], ...], out: str | None = None, slots: int = DONOR_SLOTS
@@ -468,55 +478,83 @@ class Donors:
         self.sets = list(sets)
         self.out = out
         self.slots = max(slots, 1)
+        self._generation = [0] * len(self.sets)
+        #: The exit each slot was last renewed from; None for a set given up front.
+        self._source: list[str | None] = [None] * len(self.sets)
         #: The slot the next renewal overwrites once all slots are filled.
         self._oldest = 0
         self._at = 0
         self._refused = 0
         self._lock = threading.Lock()
 
-    def current(self) -> tuple[int, tuple[dict, ...]] | None:
+    def current(self) -> tuple[int, int, tuple[dict, ...]] | None:
+        """The slot in use, its generation and its set; None without sets."""
         with self._lock:
-            return (self._at, self.sets[self._at]) if self.sets else None
+            if not self.sets:
+                return None
+            return self._at, self._generation[self._at], self.sets[self._at]
 
-    def served(self, index: int) -> None:
+    def served(self, index: int, generation: int) -> None:
         with self._lock:
-            if index == self._at:
+            if (index, generation) == (self._at, self._generation[index]):
                 self._refused = 0
 
-    def refused(self, index: int, emit: Callable[[dict], None]) -> None:
+    def refused(self, index: int, generation: int, emit: Callable[[dict], None]) -> None:
         with self._lock:
-            if index != self._at:
-                return  # an exit from a set already left behind
+            if (index, generation) != (self._at, self._generation[index]):
+                return  # an exit from a set already left behind or replaced
             self._refused += 1
             if self._refused >= DONOR_REFUSALS and len(self.sets) > 1:
                 self._at = (self._at + 1) % len(self.sets)
                 self._refused = 0
                 emit({"event": "donor_switched", "to": self._at, "after_refusals": DONOR_REFUSALS})
 
-    def renew(self, cookies: tuple[dict, ...], emit: Callable[[dict], None]) -> None:
-        """Take fresher cookies from a served exit as the set in use. They go
-        into a free slot, or over the oldest set once `slots` are filled; a
-        refused set then hands over to the next slot, a recent set from
-        another exit."""
+    def renew(self, cookies: tuple[dict, ...], source: str, emit: Callable[[dict], None]) -> None:
+        """Take fresher cookies from a served exit as the set in use. An exit
+        renewing again replaces its own set; otherwise they go into a free
+        slot, or over the oldest set once `slots` are filled. A refused set
+        then hands over to the next slot, a recent set from another exit."""
         if not any(c.get("name") == "NID" for c in cookies):
             return  # not a set Google's trust rides on
         with self._lock:
-            if len(self.sets) < self.slots:
+            if source in self._source:
+                at = self._source.index(source)
+                self.sets[at] = cookies
+            elif len(self.sets) < self.slots:
                 self.sets.append(cookies)
+                self._generation.append(0)
+                self._source.append(None)
                 at = len(self.sets) - 1
             else:
                 at = self._oldest
                 self.sets[at] = cookies
                 self._oldest = (at + 1) % len(self.sets)
+            self._generation[at] += 1
+            self._source[at] = source
             self._at = at
             self._refused = 0
-        if self.out:
-            os.makedirs(self.out, exist_ok=True)
-            path = os.path.join(self.out, f"donor_{at}.json")
-            with open(path + ".tmp", "w", encoding="utf-8") as fh:
-                json.dump({"t": time.time(), "cookies": list(cookies)}, fh)
-            os.replace(path + ".tmp", path)
+            # Written under the lock: workers renewing at once would otherwise
+            # race on the slot's file.
+            error = self._write(at, cookies) if self.out else None
         emit({"event": "donor_renewed", "set": at, "cookies": len(cookies)})
+        if error:
+            emit({"event": "donor_write_failed", "set": at, "error": error})
+
+    def _write(self, at: int, cookies: tuple[dict, ...]) -> str | None:
+        """Write a set for the next run's `donors`, readable by its owner only;
+        the error, if the write failed - the set in memory is still used."""
+        assert self.out is not None
+        path = os.path.join(self.out, f"donor_{at}.json")
+        tmp = path + ".tmp"
+        try:
+            os.makedirs(self.out, exist_ok=True)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump({"t": time.time(), "cookies": list(cookies)}, fh)
+            os.replace(tmp, path)
+        except OSError as exc:
+            return describe_error(exc)
+        return None
 
 
 class Breaker:
@@ -568,8 +606,12 @@ class Identity:
     template: int | None = None
     #: Whether a copy started with the template's cache.
     clone_cache: bool = False
-    #: Index of the `Settings.donors` set it started with instead of a warm-up.
+    #: Index of the `Settings.donors` set it started with instead of a warm-up,
+    #: and that slot's generation then.
     donor: int | None = None
+    donor_generation: int = 0
+    #: Queries served here, counting each query once whatever its pages.
+    served_queries: int = 0
     #: Bytes per host by the end of the warm-up, and inside served pages.
     warm_hosts: dict[str, int] = field(default_factory=dict)
     page_hosts: dict[str, int] = field(default_factory=dict)
@@ -804,14 +846,22 @@ class Scraper:
         self._saved = 0
         self.stats = Stats()
 
-    def share(self, breaker: Breaker, templates: Templates, headers: Headers | None = None) -> None:
-        """Use a breaker, a template and the hybrid's request headers that other
-        scrapers use too (see `Pool`). The shared template is left for its
-        owner to drop when this one closes."""
+    def share(
+        self,
+        breaker: Breaker,
+        templates: Templates,
+        headers: Headers | None = None,
+        donors: Donors | None = None,
+    ) -> None:
+        """Use a breaker, a template, the hybrid's request headers and the
+        cookie sets that other scrapers use too (see `Pool`). The shared
+        template is left for its owner to drop when this one closes."""
         self._breaker = breaker
         self._templates = templates
         if headers is not None:
             self._headers = headers
+        if donors is not None:
+            self._donors = donors
         self._owns_templates = False
 
     # -- public --------------------------------------------------------------
@@ -988,9 +1038,10 @@ class Scraper:
                 if identity.clone and identity.queries == 1:
                     self._templates.copy_served(identity.template)
                 if identity.donor is not None and identity.queries == 1:
-                    self._donors.served(identity.donor)
+                    self._donors.served(identity.donor, identity.donor_generation)
+                identity.served_queries += 1
                 every = s.renew_donors_every
-                if every and identity.queries % every == 0:
+                if every and identity.served_queries % every == 0:
                     self._renew_donor(identity)
                 if more:
                     self._top_up()
@@ -1013,7 +1064,7 @@ class Scraper:
                 # Copies are refused together with the profile they came from.
                 self._templates.copy_refused(identity.template, self._emit, identity.clone_cache)
             if identity.donor is not None and identity.queries == 1 and verdict.refused:
-                self._donors.refused(identity.donor, self._emit)
+                self._donors.refused(identity.donor, identity.donor_generation, self._emit)
             last_verdict, last_error = verdict, None
             self.stats.exits_refused += verdict.refused
             self._retire(verdict.kind)
@@ -1070,7 +1121,7 @@ class Scraper:
         except Exception as exc:  # the browser is mid-restart or gone; next time
             self._event("donor_renew_failed", identity, error=describe_error(exc))
             return
-        self._donors.renew(tuple(cookies), self._emit)
+        self._donors.renew(tuple(cookies), identity.session_id, self._emit)
 
     def _upkeep(self, identity: Identity, more: bool) -> None:
         """What a served query leaves to do once its pages are out."""
@@ -1335,7 +1386,7 @@ class Scraper:
         relay, browser_proxy = self._relay_for(upstream)
         started = time.monotonic()
         picked = self._donors.current()
-        donor = {"cookies": picked[1]} if picked else {}
+        donor = {"cookies": picked[2]} if picked else {}
 
         def make() -> Any:
             return self._hybrid(
@@ -1391,6 +1442,7 @@ class Scraper:
             ready_at=time.monotonic(),
             warm_hosts=relay.hosts() if relay is not None else {},
             donor=picked[0] if picked else None,
+            donor_generation=picked[1] if picked else 0,
         )
 
     def _count_in(self, identity: Identity, **spare: Any) -> None:

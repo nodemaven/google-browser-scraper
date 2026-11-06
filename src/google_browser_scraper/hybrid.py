@@ -467,7 +467,8 @@ class HybridSession:
     def google_cookie_records(self) -> tuple[dict, ...]:
         """The Google cookies as they stand after the HTTP side's pages too:
         those are folded into the browser first."""
-        if self._cookie:
+        # Deletions count even when they emptied the header.
+        if self._cookie or self._deleted:
             self.inner.set_google_cookies(self._cookie, tuple(sorted(self._deleted)))
             self._deleted.clear()
         return self.inner.google_cookie_records()

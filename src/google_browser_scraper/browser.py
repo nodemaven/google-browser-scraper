@@ -27,9 +27,18 @@ HOME_URL = "https://www.google.com/?hl=en"
 COOKIE_KEYS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite")
 
 
+def google_cookie(cookie: dict) -> bool:
+    """Whether a cookie belongs to one of Google's own domains."""
+    from .links import is_google_host
+
+    return is_google_host(cookie.get("domain") or "")
+
+
 def load_cookies(path: str) -> tuple[dict, ...]:
     """Google cookies from a JSON file: a list of Playwright cookie records, or
-    an object with such a list under "cookies". Other domains are dropped."""
+    an object with such a list under "cookies". Other domains and expired
+    cookies are dropped; a file without a live NID is refused, since that is
+    the cookie Google's trust rides on."""
     import json
 
     with open(path, encoding="utf-8") as fh:
@@ -45,7 +54,7 @@ def load_cookies(path: str) -> tuple[dict, ...]:
             or "value" not in c
         ):
             raise ValueError(f"{path}: every cookie needs name, value and domain")
-        if "google." not in c["domain"]:
+        if not google_cookie(c):
             continue
         if 0 < c.get("expires", -1) < time.time():
             continue  # already expired; the browser would drop it anyway
@@ -54,6 +63,8 @@ def load_cookies(path: str) -> tuple[dict, ...]:
         out.append(cookie)
     if not out:
         raise ValueError(f"{path}: no Google cookies in it")
+    if not any(c["name"] == "NID" for c in out):
+        raise ValueError(f"{path}: no live NID cookie in it")
     return tuple(out)
 
 
@@ -324,7 +335,7 @@ class BrowserSession:
         return tuple(
             {k: c[k] for k in COOKIE_KEYS if k in c}
             for c in self._context.cookies()
-            if "google." in c.get("domain", "") and not 0 < c.get("expires", -1) < now
+            if google_cookie(c) and not 0 < c.get("expires", -1) < now
         )
 
     def set_google_cookies(self, header: str, deleted: tuple[str, ...] = ()) -> None:
@@ -333,7 +344,9 @@ class BrowserSession:
         known = {c["name"]: c for c in self._context.cookies(search_page())}
         pairs = [p.strip().split("=", 1) for p in header.split(";") if "=" in p]
         for name in set(deleted) - {name for name, _ in pairs}:
-            self._context.clear_cookies(name=name, domain=".google.com")
+            # Domain cookies and host-only ones set by www.google.com alike.
+            for domain in (".google.com", "www.google.com"):
+                self._context.clear_cookies(name=name, domain=domain)
         update = []
         for name, value in pairs:
             base = known.get(name)
