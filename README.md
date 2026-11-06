@@ -335,6 +335,14 @@ from the held one at each browser restart, when its cache is warm. If two
 copies carrying the cache are refused on their first search, the rest of the
 run copies cookies only (`--no-clone-cache` does that from the start).
 
+**Starting from saved cookies.** `--cookies FILE` gives every new proxy IP the
+Google cookies of a browser Google already serves, so it skips the warm-up; the
+file can come from another machine. `--renew-cookies N` replaces that set with
+the cookies of a served proxy IP every N queries, so it stays fresh, and without
+`--cookies` it ends the warm-ups after the first renewal. `--cookies-out DIR`
+saves each renewed set for the next run. A file is a JSON list of Playwright
+cookie records, or an object with that list under `"cookies"`.
+
 **Result links.** Google wraps result links in encrypted `/goto` redirects.
 Each one is resolved with a small request on the proxy IP the page came from,
 with that page's cookies, in the background while the next query runs; a link
@@ -368,6 +376,9 @@ The defaults come from measurements in
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |
 | `--no-clone-cache` | | Copies carry cookies only, not the browser cache |
+| `--cookies FILE ...` | | Start every new proxy IP from the Google cookies in FILE instead of a warm-up; the next file takes over after two proxy IPs in a row are refused on their first query. Turns `--clone` off |
+| `--renew-cookies N` | 0 | Every N served queries, a proxy IP's Google cookies become the set new proxy IPs start from; `0` is off. Turns `--clone` off |
+| `--cookies-out DIR` | | Write each renewed cookie set to DIR, for the next run's `--cookies` |
 | `--warmup` | `L3` | Pages a fresh proxy IP opens before its first query: `L3`, `light` (without Google Trends: much less traffic, served on the first query less often), `L2`, `L1`, `off` |
 | `--spare N` | 0 | Proxy IPs warmed in the background so a retired one is replaced at once; each costs a warm-up |
 | `--direct` | `all` | Open results pages directly: `all`, `follow-ups` (all but the first query on each proxy IP), `none` |

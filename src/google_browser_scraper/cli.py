@@ -248,6 +248,28 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         help="fetch every results page in the browser; by default they come over HTTP "
         "with the browser's cookies, and the browser handles only Google's checks",
     )
+    p.add_argument(
+        "--cookies",
+        metavar="FILE",
+        nargs="+",
+        help="start every new proxy IP with the Google cookies in FILE (JSON) instead of "
+        "warming it up; with several files, the next one takes over after two proxy IPs "
+        "in a row are refused on their first query; turns --clone off",
+    )
+    p.add_argument(
+        "--renew-cookies",
+        type=int,
+        default=0,
+        metavar="N",
+        help="every N served queries on a proxy IP, its Google cookies replace the set new "
+        "proxy IPs start from, so the set stays fresh; without --cookies the first renewal "
+        "ends the warm-ups (default 0, off; turns --clone off)",
+    )
+    p.add_argument(
+        "--cookies-out",
+        metavar="DIR",
+        help="write each renewed cookie set to DIR, to start the next run with --cookies",
+    )
     p.add_argument("--hl", default="en", help="interface language of the results, e.g. de")
     p.add_argument(
         "--gl",
@@ -313,7 +335,8 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
         restart_every=args.restart_every,
         clone_cache=not args.no_clone_cache,
         spare=args.spare,
-        clones=args.clone,
+        # Cookie sets replace the copies of a served profile.
+        clones=0 if args.cookies or args.renew_cookies else args.clone,
         clone_max_age=args.clone_max_age * 60,
         clone_refusals=args.clone_refusals,
         input=args.input,
@@ -330,6 +353,9 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
         resolve_links=not args.no_resolve_links,
         hl=args.hl,
         gl=args.gl,
+        donors=tuple(browser.load_cookies(f) for f in args.cookies or ()),
+        renew_donors_every=args.renew_cookies,
+        donors_out=args.cookies_out,
     )
     log = None
     if args.verbose:

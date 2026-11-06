@@ -23,6 +23,7 @@ first query ends the copying.
 from __future__ import annotations
 
 import gzip
+import json
 import os
 import random
 import re
@@ -95,6 +96,13 @@ _HTTP_CACHE = os.path.join("Default", "Cache")
 #: Copies carrying the HTTP cache refused on their first query, over a whole
 #: run, after which copies carry the cookie jar alone.
 CACHE_REFUSALS = 2
+#: Exits started from one cookie set and refused on their first query, in a
+#: row, before the next set is used. A set refused once can be served again on
+#: the next exit; two in a row usually means it is out of favour for a while.
+DONOR_REFUSALS = 2
+#: Cookie sets renewal keeps, each from a different served exit, so a refused
+#: set has fresh ones to hand over to instead of one set overwritten in place.
+DONOR_SLOTS = 4
 
 
 def _retry_copy(copy, dest: str, attempts: int) -> None:
@@ -258,6 +266,21 @@ class Settings:
     #: and use the browser only for Google's checks (see `hybrid`). Needs the
     #: relay; an engine that cannot do it ignores it.
     hybrid: bool = True
+    #: Sets of Google cookies from browsers Google already serves, as
+    #: Playwright cookie records. Every new exit starts with the current set
+    #: instead of walking the warm-up: it carries Google's trust to a new IP,
+    #: even one on another machine, and costs no traffic. After
+    #: DONOR_REFUSALS exits in a row refused on their first query, the next set
+    #: takes over.
+    donors: tuple[tuple[dict, ...], ...] = ()
+    #: Every this many served queries on an exit, its Google cookies replace
+    #: the cookie set in use, so the sets stay as fresh as the exits serving
+    #: them and need no warm-up of their own. Without `donors` the first
+    #: renewal turns warm-ups off: later exits start from it. 0 never renews.
+    renew_donors_every: int = 0
+    #: Directory each renewed set is written to, as `donor_<n>.json`, for the
+    #: next run's `donors`.
+    donors_out: str | None = None
 
     def __post_init__(self) -> None:
         engines.get(self.engine)
@@ -435,6 +458,67 @@ class Templates:
         emit({"event": "template_dropped", "reason": reason, "unused": t.left})
 
 
+class Donors:
+    """The cookie sets new exits start from, used one at a time, moving on to
+    the next after DONOR_REFUSALS first queries refused in a row."""
+
+    def __init__(
+        self, sets: tuple[tuple[dict, ...], ...], out: str | None = None, slots: int = DONOR_SLOTS
+    ) -> None:
+        self.sets = list(sets)
+        self.out = out
+        self.slots = max(slots, 1)
+        #: The slot the next renewal overwrites once all slots are filled.
+        self._oldest = 0
+        self._at = 0
+        self._refused = 0
+        self._lock = threading.Lock()
+
+    def current(self) -> tuple[int, tuple[dict, ...]] | None:
+        with self._lock:
+            return (self._at, self.sets[self._at]) if self.sets else None
+
+    def served(self, index: int) -> None:
+        with self._lock:
+            if index == self._at:
+                self._refused = 0
+
+    def refused(self, index: int, emit: Callable[[dict], None]) -> None:
+        with self._lock:
+            if index != self._at:
+                return  # an exit from a set already left behind
+            self._refused += 1
+            if self._refused >= DONOR_REFUSALS and len(self.sets) > 1:
+                self._at = (self._at + 1) % len(self.sets)
+                self._refused = 0
+                emit({"event": "donor_switched", "to": self._at, "after_refusals": DONOR_REFUSALS})
+
+    def renew(self, cookies: tuple[dict, ...], emit: Callable[[dict], None]) -> None:
+        """Take fresher cookies from a served exit as the set in use. They go
+        into a free slot, or over the oldest set once `slots` are filled; a
+        refused set then hands over to the next slot, a recent set from
+        another exit."""
+        if not any(c.get("name") == "NID" for c in cookies):
+            return  # not a set Google's trust rides on
+        with self._lock:
+            if len(self.sets) < self.slots:
+                self.sets.append(cookies)
+                at = len(self.sets) - 1
+            else:
+                at = self._oldest
+                self.sets[at] = cookies
+                self._oldest = (at + 1) % len(self.sets)
+            self._at = at
+            self._refused = 0
+        if self.out:
+            os.makedirs(self.out, exist_ok=True)
+            path = os.path.join(self.out, f"donor_{at}.json")
+            with open(path + ".tmp", "w", encoding="utf-8") as fh:
+                json.dump({"t": time.time(), "cookies": list(cookies)}, fh)
+            os.replace(path + ".tmp", path)
+        emit({"event": "donor_renewed", "set": at, "cookies": len(cookies)})
+
+
 class Breaker:
     """Exits refused or unreachable in a row, across every worker sharing it.
 
@@ -484,6 +568,8 @@ class Identity:
     template: int | None = None
     #: Whether a copy started with the template's cache.
     clone_cache: bool = False
+    #: Index of the `Settings.donors` set it started with instead of a warm-up.
+    donor: int | None = None
     #: Bytes per host by the end of the warm-up, and inside served pages.
     warm_hosts: dict[str, int] = field(default_factory=dict)
     page_hosts: dict[str, int] = field(default_factory=dict)
@@ -647,6 +733,13 @@ class Pinned:
     def link_client(self) -> Any:
         return self._call(getattr(self.session, "link_client", lambda: None))
 
+    def google_cookie_records(self) -> tuple[dict, ...]:
+        return self._call(self.session.google_cookie_records)
+
+    @property
+    def http_off(self) -> bool:
+        return bool(getattr(self.session, "http_off", False))
+
     def blank(self) -> None:
         self._call(self.session.blank)
 
@@ -706,6 +799,7 @@ class Scraper:
         )
         self._owns_templates = True
         self._breaker = Breaker(self.settings.breaker)
+        self._donors = Donors(self.settings.donors, self.settings.donors_out)
         self._headers = Headers()
         self._saved = 0
         self.stats = Stats()
@@ -893,10 +987,23 @@ class Scraper:
                 self._breaker.served()
                 if identity.clone and identity.queries == 1:
                     self._templates.copy_served(identity.template)
+                if identity.donor is not None and identity.queries == 1:
+                    self._donors.served(identity.donor)
+                every = s.renew_donors_every
+                if every and identity.queries % every == 0:
+                    self._renew_donor(identity)
                 if more:
                     self._top_up()
                 yield record
                 yield from self._more_pages(query, identity)
+                if self._donors.current() is not None and getattr(
+                    identity.session, "http_off", False
+                ):
+                    # Every further page here would come from the browser, at
+                    # several times the traffic; a new exit from a cookie set
+                    # costs next to nothing and gets the HTTP side back.
+                    self._retire("http side off")
+                    return
                 if settle:
                     self._upkeep(identity, more)
                 else:
@@ -905,6 +1012,8 @@ class Scraper:
             if identity.clone and identity.queries == 1 and verdict.refused:
                 # Copies are refused together with the profile they came from.
                 self._templates.copy_refused(identity.template, self._emit, identity.clone_cache)
+            if identity.donor is not None and identity.queries == 1 and verdict.refused:
+                self._donors.refused(identity.donor, self._emit)
             last_verdict, last_error = verdict, None
             self.stats.exits_refused += verdict.refused
             self._retire(verdict.kind)
@@ -954,6 +1063,14 @@ class Scraper:
                 return identity.session.search(query, direct=True, **self._locale)
             identity.session.visit(browser.HOME_URL, 0)
             return identity.session.search(query)
+
+    def _renew_donor(self, identity: Identity) -> None:
+        try:
+            cookies = identity.session.google_cookie_records()
+        except Exception as exc:  # the browser is mid-restart or gone; next time
+            self._event("donor_renew_failed", identity, error=describe_error(exc))
+            return
+        self._donors.renew(tuple(cookies), self._emit)
 
     def _upkeep(self, identity: Identity, more: bool) -> None:
         """What a served query leaves to do once its pages are out."""
@@ -1217,6 +1334,8 @@ class Scraper:
         upstream = self.proxy.for_session(session_id) if self.proxy is not None else None
         relay, browser_proxy = self._relay_for(upstream)
         started = time.monotonic()
+        picked = self._donors.current()
+        donor = {"cookies": picked[1]} if picked else {}
 
         def make() -> Any:
             return self._hybrid(
@@ -1230,6 +1349,7 @@ class Scraper:
                     input_mode=s.input,
                     hl=s.hl,
                     gl=s.gl,
+                    **donor,
                 ),
                 relay,
                 browser_proxy,
@@ -1249,7 +1369,9 @@ class Scraper:
             if relay is not None:
                 relay.stop()
             raise
-        pages = ladder.pages(s.warmup)
+        # Donor cookies stand in for the warm-up; no settle either, a first
+        # search right after launch is served as often with them.
+        pages = () if donor else ladder.pages(s.warmup)
         delivered = 0
         for url in pages:
             if pinned and self._cancel.is_set():
@@ -1268,6 +1390,7 @@ class Scraper:
             warm_seconds=round(time.monotonic() - started, 1),
             ready_at=time.monotonic(),
             warm_hosts=relay.hosts() if relay is not None else {},
+            donor=picked[0] if picked else None,
         )
 
     def _count_in(self, identity: Identity, **spare: Any) -> None:
@@ -1282,6 +1405,7 @@ class Scraper:
             warm_bytes=identity.warm_bytes,
             warm_hosts=_by_size(identity.warm_hosts),
             seconds=identity.warm_seconds,
+            **({"donor": identity.donor} if identity.donor is not None else {}),
             **spare,
         )
 
@@ -1299,12 +1423,20 @@ class Scraper:
         return identity
 
     def _hybrid(self, session: Any, relay: Any, browser_proxy: dict[str, str] | None) -> Any:
-        """The session, driven by the hybrid when the settings and the engine
-        allow it. The HTTP side goes through the identity's relay, so it uses
-        the same exit and its traffic is counted with the browser's."""
-        if not (self.settings.hybrid and getattr(session, "hybrid_capable", False) and relay):
+        """The session, driven by the hybrid when the engine allows it. The HTTP
+        side goes through the identity's relay, so it uses the same exit and its
+        traffic is counted with the browser's. With the hybrid turned off the
+        session still wraps the browser, but only to resolve links on this exit:
+        every results page comes from the browser."""
+        if not (getattr(session, "hybrid_capable", False) and relay):
             return session
-        return HybridSession(session, browser_proxy["server"], self._headers, self._emit)
+        return HybridSession(
+            session,
+            browser_proxy["server"],
+            self._headers,
+            self._emit,
+            pages_over_http=self.settings.hybrid,
+        )
 
     def _relay_for(self, upstream: dict[str, str] | None):
         """Decide whether this identity goes through the counting relay."""

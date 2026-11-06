@@ -1194,6 +1194,22 @@ def test_a_fake_browser_is_not_driven_by_the_hybrid():
     assert records[0]["search_metadata"]["fetched_with"] == "browser"
 
 
+def test_with_the_hybrid_off_a_capable_browser_is_wrapped_only_to_resolve_links():
+    from google_browser_scraper.hybrid import HybridSession
+
+    class Capable:
+        hybrid_capable = True
+        name = "patchright"
+
+    proxy = {"server": "http://127.0.0.1:1"}
+    off = scraper([[SERVED]], Settings(hybrid=False))._hybrid(Capable(), object(), proxy)
+    on = scraper([[SERVED]])._hybrid(Capable(), object(), proxy)
+    assert isinstance(off, HybridSession) and off._pages_over_http is False
+    assert isinstance(on, HybridSession) and on._pages_over_http is True
+    # No relay, no HTTP side on this exit: the browser is used as it is.
+    assert isinstance(scraper([[SERVED]])._hybrid(Capable(), None, proxy), Capable)
+
+
 def test_restart_every_counts_pages_the_browser_rendered_not_http_ones():
     from google_browser_scraper.browser import Fetched as F
 
@@ -1263,3 +1279,149 @@ def test_a_spare_passes_its_link_client_through():
     finally:
         with_client._thread.shutdown(wait=False)
         without._thread.shutdown(wait=False)
+
+
+DONOR = ({"name": "NID", "value": "v", "domain": ".google.com", "path": "/"},)
+
+
+def test_donor_cookies_replace_the_warm_up_on_every_new_exit():
+    events, slept = [], []
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), donors=(DONOR,))
+    records = list(
+        scraper([[REFUSED], [SERVED]], settings, events=events, sleep=slept.append).run(["a"])
+    )
+    assert [r["search_metadata"]["status"] for r in records] == ["Success"]
+    for session in FakeSession.opened:
+        assert session.visited == []
+        assert session.options["cookies"] == DONOR
+    minted = [e for e in events if e["event"] == "minted"]
+    assert len(minted) == 2 and all(e["donor"] == 0 and e["warm_pages"] == 0 for e in minted)
+    assert slept == []  # no settle after launch either
+
+
+def test_without_donor_cookies_the_factory_gets_no_cookies_argument():
+    scraper([[SERVED]]).run(["a"]).__next__()
+    assert "cookies" not in FakeSession.opened[0].options
+
+
+OTHER = ({"name": "NID", "value": "w", "domain": ".google.com", "path": "/"},)
+
+
+def test_two_first_query_refusals_in_a_row_move_to_the_next_donor():
+    events = []
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        breaker=5,
+        max_exits_per_query=4,
+        donors=(DONOR, OTHER),
+    )
+    list(scraper([[REFUSED], [REFUSED], [SERVED, SERVED]], settings, events=events).run(["a", "b"]))
+    used = [s.options["cookies"] for s in FakeSession.opened]
+    assert used == [DONOR, DONOR, OTHER]
+    assert [e for e in events if e["event"] == "donor_switched"] == [
+        {"event": "donor_switched", "to": 1, "after_refusals": 2}
+    ]
+
+
+def test_a_served_first_query_resets_the_donor_refusal_count():
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        breaker=5,
+        max_queries_per_exit=1,
+        donors=(DONOR, OTHER),
+    )
+    list(scraper([[REFUSED], [SERVED], [REFUSED], [SERVED]], settings).run(["a", "b"]))
+    assert all(s.options["cookies"] == DONOR for s in FakeSession.opened)
+
+
+class CookieSession(FakeSession):
+    jar = ({"name": "NID", "value": "fresh", "domain": ".google.com", "path": "/"},)
+
+    def google_cookie_records(self):
+        return self.jar
+
+
+def test_a_served_exit_renews_the_donor_set_and_writes_it_out(tmp_path):
+    import json as _json
+
+    events = []
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        max_queries_per_exit=2,
+        donors=(DONOR,),
+        renew_donors_every=2,
+        donors_out=str(tmp_path),
+    )
+    list(
+        scraper([[SERVED, SERVED], [SERVED]], settings, events=events, cls=CookieSession).run(
+            ["a", "b", "c"]
+        )
+    )
+    first, second = FakeSession.opened
+    assert first.options["cookies"] == DONOR
+    assert second.options["cookies"] == CookieSession.jar
+    assert [e["event"] for e in events].count("donor_renewed") == 1
+    saved = _json.loads((tmp_path / "donor_1.json").read_text(encoding="utf-8"))
+    assert saved["cookies"] == list(CookieSession.jar)
+
+
+def test_renewal_without_donors_ends_the_warm_ups():
+    settings = Settings(
+        gap_seconds=(0, 0), dwell_seconds=(0, 0), max_queries_per_exit=1, renew_donors_every=1
+    )
+    list(scraper([[SERVED], [SERVED]], settings, cls=CookieSession).run(["a", "b"]))
+    first, second = FakeSession.opened
+    assert len(first.visited) == 6 and "cookies" not in first.options
+    assert second.visited == [] and second.options["cookies"] == CookieSession.jar
+
+
+def test_a_set_without_nid_is_not_taken_as_a_donor():
+    class NoNid(CookieSession):
+        jar = ({"name": "AEC", "value": "x", "domain": ".google.com", "path": "/"},)
+
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        max_queries_per_exit=1,
+        donors=(DONOR,),
+        renew_donors_every=1,
+    )
+    list(scraper([[SERVED], [SERVED]], settings, cls=NoNid).run(["a", "b"]))
+    assert FakeSession.opened[1].options["cookies"] == DONOR
+
+
+def test_renewals_fill_slots_then_overwrite_the_oldest_and_the_newest_is_used():
+    from google_browser_scraper.scraper import Donors
+
+    events = []
+    sets = [({"name": "NID", "value": str(i), "domain": ".google.com"},) for i in range(4)]
+    d = Donors((), slots=3)
+    for s_ in sets:
+        d.renew(s_, events.append)
+    assert d.sets == [sets[3], sets[1], sets[2]]
+    assert d.current() == (0, sets[3])
+    d.refused(0, events.append)
+    d.refused(0, events.append)
+    assert d.current() == (1, sets[1])
+
+
+def test_an_exit_whose_http_side_gave_up_is_replaced_when_there_are_donors():
+    class OffSession(FakeSession):
+        http_off = True
+
+    events = []
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), donors=(DONOR,))
+    list(scraper([[SERVED], [SERVED]], settings, events=events, cls=OffSession).run(["a", "b"]))
+    assert [s.searched for s in FakeSession.opened] == [["a"], ["b"]]
+    assert any(e["event"] == "retired" and e["reason"] == "http side off" for e in events)
+
+
+def test_without_donors_an_exit_whose_http_side_gave_up_is_kept():
+    class OffSession(FakeSession):
+        http_off = True
+
+    list(scraper([[SERVED, SERVED]], cls=OffSession).run(["a", "b"]))
+    assert [s.searched for s in FakeSession.opened] == [["a", "b"]]

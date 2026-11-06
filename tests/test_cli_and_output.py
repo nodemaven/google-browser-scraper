@@ -195,3 +195,47 @@ def test_copies_are_on_by_default_and_can_be_turned_off():
     parser = cli._parser()
     assert parser.parse_args(["search", "q", "--no-proxy"]).clone == 10
     assert parser.parse_args(["search", "q", "--no-proxy", "--clone", "0"]).clone == 0
+
+
+def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
+    import json
+
+    from google_browser_scraper.browser import load_cookies
+
+    f = tmp_path / "donor.json"
+    f.write_text(
+        json.dumps(
+            {
+                "t": 1,
+                "cookies": [
+                    {
+                        "name": "NID",
+                        "value": "v",
+                        "domain": ".google.com",
+                        "path": "/",
+                        "partitionKey": "x",
+                    },
+                    {"name": "_ga", "value": "w", "domain": ".example.com", "path": "/"},
+                    {
+                        "name": "DV",
+                        "value": "old",
+                        "domain": "www.google.com",
+                        "path": "/",
+                        "expires": 1.0,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_cookies(str(f)) == (
+        {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"},
+    )
+    f.write_text(
+        json.dumps([{"name": "x", "value": "1", "domain": ".example.com"}]), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="no Google cookies"):
+        load_cookies(str(f))
+    f.write_text(json.dumps([{"value": "1", "domain": ".google.com"}]), encoding="utf-8")
+    with pytest.raises(ValueError, match="name, value and domain"):
+        load_cookies(str(f))

@@ -147,3 +147,30 @@ def test_a_direct_search_clears_a_consent_wall_and_opens_the_results_again(
         assert not second.consent_dismissed
     finally:
         session.close()
+
+
+def test_donor_cookies_are_in_the_browser_before_the_first_page_and_survive_a_restart(local_google):
+    # Google's cookies carry an expiry; a session cookie would not outlive the restart.
+    import time
+
+    donor = [
+        {
+            "name": "NID",
+            "value": "donor",
+            "domain": "127.0.0.1",
+            "path": "/",
+            "expires": time.time() + 86400,
+        }
+    ]
+    try:
+        session = browser.BrowserSession(None, headless=True, cookies=donor).__enter__()
+    except Exception as exc:  # browser binary missing on this machine
+        pytest.skip(f"no Patchright browser: {exc}")
+    try:
+        names = lambda: {c["name"]: c["value"] for c in session._context.cookies()}  # noqa: E731
+        assert names().get("NID") == "donor"
+        session.suspend()
+        session.resume()
+        assert names().get("NID") == "donor"
+    finally:
+        session.close()

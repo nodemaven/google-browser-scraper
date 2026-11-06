@@ -24,6 +24,39 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 HOME_URL = "https://www.google.com/?hl=en"
 
 
+COOKIE_KEYS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite")
+
+
+def load_cookies(path: str) -> tuple[dict, ...]:
+    """Google cookies from a JSON file: a list of Playwright cookie records, or
+    an object with such a list under "cookies". Other domains are dropped."""
+    import json
+
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    records = data.get("cookies") if isinstance(data, dict) else data
+    if not isinstance(records, list):
+        raise ValueError(f"{path}: expected a list of cookies or an object with 'cookies'")
+    out = []
+    for c in records:
+        if (
+            not isinstance(c, dict)
+            or not all(c.get(k) for k in ("name", "domain"))
+            or "value" not in c
+        ):
+            raise ValueError(f"{path}: every cookie needs name, value and domain")
+        if "google." not in c["domain"]:
+            continue
+        if 0 < c.get("expires", -1) < time.time():
+            continue  # already expired; the browser would drop it anyway
+        cookie = {k: c[k] for k in COOKIE_KEYS if k in c}
+        cookie.setdefault("path", "/")
+        out.append(cookie)
+    if not out:
+        raise ValueError(f"{path}: no Google cookies in it")
+    return tuple(out)
+
+
 def search_page() -> str:
     """Google's results page without a query, on the host of `HOME_URL`: what
     cookies are read for and what the hybrid looks for in a NetLog."""
@@ -103,6 +136,7 @@ class BrowserSession:
         input_mode: str = "type",
         hl: str = "en",
         gl: str | None = None,
+        cookies: list[dict] | tuple[dict, ...] = (),
     ) -> None:
         if input_mode not in INPUT_MODES:
             raise ValueError(f"input mode must be one of {', '.join(INPUT_MODES)}")
@@ -125,6 +159,9 @@ class BrowserSession:
         # A given directory (a copy of another identity's profile) is used as
         # it is; either way the profile is removed on close.
         self._profile = profile_dir
+        #: Cookies added before the first page, once: the profile keeps them
+        #: across a restart.
+        self._cookies = [dict(c) for c in cookies]
         self.page = None
         #: A file to record Chromium's NetLog into from the next launch; the
         #: hybrid reads its request headers from one.
@@ -162,6 +199,9 @@ class BrowserSession:
 
     def _open(self) -> None:
         self._context = self._launch(self._profile)
+        if self._cookies:
+            self._context.add_cookies(self._cookies)
+            self._cookies = []
         pages = self._context.pages
         self.page = pages[0] if pages else self._context.new_page()
 
@@ -276,6 +316,16 @@ class BrowserSession:
         """The cookies the browser would send to Google search, as one header."""
         cookies = self._context.cookies(search_page())
         return "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+
+    def google_cookie_records(self) -> tuple[dict, ...]:
+        """The browser's Google cookies as records `load_cookies` and the
+        `cookies` argument take, for starting other browsers from."""
+        now = time.time()
+        return tuple(
+            {k: c[k] for k in COOKIE_KEYS if k in c}
+            for c in self._context.cookies()
+            if "google." in c.get("domain", "") and not 0 < c.get("expires", -1) < now
+        )
 
     def set_google_cookies(self, header: str, deleted: tuple[str, ...] = ()) -> None:
         """Take the values in a cookie header, keeping each cookie's attributes,

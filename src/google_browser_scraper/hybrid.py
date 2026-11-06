@@ -289,12 +289,23 @@ class HybridSession:
     serves them there, and from the browser otherwise.
 
     Offers what the scraper calls on any session. `on_event` receives the
-    hybrid's own events; it is called on the session's thread.
+    hybrid's own events; it is called on the session's thread. With
+    `pages_over_http` off every results page comes from the browser, and the
+    session is kept only for what its links are resolved with.
     """
 
-    def __init__(self, inner: Any, proxy_url: str | None, headers: Headers, on_event=None) -> None:
+    def __init__(
+        self,
+        inner: Any,
+        proxy_url: str | None,
+        headers: Headers,
+        on_event=None,
+        *,
+        pages_over_http: bool = True,
+    ) -> None:
         self.inner = inner
         self.name = getattr(inner, "name", "patchright")
+        self._pages_over_http = pages_over_http
         self._proxy_url = proxy_url
         self._headers = headers
         self._emit = on_event or (lambda event: None)
@@ -324,6 +335,11 @@ class HybridSession:
     @property
     def profile_dir(self) -> str | None:
         return self.inner.profile_dir
+
+    @property
+    def http_off(self) -> bool:
+        """The HTTP side gave up on this exit; every page now comes from the browser."""
+        return self._off
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -415,7 +431,8 @@ class HybridSession:
 
     def _usable(self) -> bool:
         return (
-            self._headers.request is not None
+            self._pages_over_http
+            and self._headers.request is not None
             and not self._headers.disabled
             and not self._off
             and self._opened_served
@@ -446,6 +463,14 @@ class HybridSession:
                 lambda: self.inner.open_results(query, page * 10, **self._locale), query, page + 1
             )
         return self._browser(self.inner.next_page, None)
+
+    def google_cookie_records(self) -> tuple[dict, ...]:
+        """The Google cookies as they stand after the HTTP side's pages too:
+        those are folded into the browser first."""
+        if self._cookie:
+            self.inner.set_google_cookies(self._cookie, tuple(sorted(self._deleted)))
+            self._deleted.clear()
+        return self.inner.google_cookie_records()
 
     def link_client(self) -> LinkClient | None:
         """For the page this session just fetched, over HTTP or in the browser:
