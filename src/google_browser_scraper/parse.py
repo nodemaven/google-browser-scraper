@@ -407,7 +407,10 @@ def _visible_text(el, *, skip_label: bool = False) -> str:
     for node in el.xpath(".//script|.//style"):
         node.drop_tree()
     if skip_label:
-        for node in el.xpath(".//*[starts-with(normalize-space(text()), 'AI Mode repl')]"):
+        for node in el.xpath(
+            ".//*[starts-with(normalize-space(text()), 'AI Mode reply for')"
+            " or starts-with(normalize-space(text()), 'AI Mode replied:')]"
+        ):
             node.drop_tree()
         # Panels the block opens on demand - sharing, feedback, a "copied"
         # notice - are dialogs, menus and status lines. Hidden parts are not

@@ -40,8 +40,9 @@ def _words(query: str) -> list[str]:
     return [_stem(w) for w in found if w not in STOP_WORDS and len(w) > 2]
 
 
-#: A slash, hyphen or dot inside a word ("Pub/Sub", "e-mail", "Node.js").
-_JOINER = re.compile(r"(?<=[^\W_])[/.\-](?=[^\W_])")
+#: A slash, hyphen or dot inside a word ("Pub/Sub", "e-mail", "Node.js"), not
+#: between two digits ("3.5", "24/7"), where closing up would make a new number.
+_JOINER = re.compile(r"(?<=[^\W\d_])[/.\-](?=[^\W_])|(?<=\d)[/.\-](?=[^\W\d_])")
 
 
 def relevance(query: str, titles: list[str]) -> float:

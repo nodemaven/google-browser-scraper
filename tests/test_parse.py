@@ -143,6 +143,12 @@ def test_ai_overview_leaves_out_the_ai_mode_replied_label():
     assert parsed["ai_overview"] == {"text": pages.AI_ANSWER}
 
 
+def test_an_answer_that_starts_like_the_label_is_kept():
+    answer = "AI Mode replaces the classic results page for some queries. " + pages.AI_ANSWER
+    parsed = parse_serp(pages.results_page(ai_overview=pages.ai_overview_block(answer)))
+    assert parsed["ai_overview"] == {"text": answer}
+
+
 def test_no_ai_overview_is_an_empty_block():
     assert parse_serp(pages.results_page())["ai_overview"] == {}
 
