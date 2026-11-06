@@ -330,3 +330,17 @@ def test_each_ping_gets_what_is_left_of_the_page_budget():
     ]
     resolver.fill_from_pings(results, PAGE, get)
     assert len(timeouts) == 2 and 0 < timeouts[1] <= timeouts[0] <= PING_BUDGET_S
+
+
+def test_the_first_ping_never_gets_more_than_the_budget(monkeypatch):
+    # (t + 30) - t is 30.000000000000057 at this clock reading.
+    monkeypatch.setattr(time, "monotonic", lambda: 500.8484746493213)
+    timeouts = []
+
+    def get(path, timeout):
+        timeouts.append(timeout)
+        return 200, "", ping_answer("https://aaa.example/")
+
+    results = [{"link": None, "redirect_link": "https://www.google.com/goto?url=AAA"}]
+    LinkResolver(None, relay_factory=None).fill_from_pings(results, PAGE, get)
+    assert timeouts == [PING_BUDGET_S]

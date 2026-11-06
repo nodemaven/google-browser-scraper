@@ -240,7 +240,9 @@ class LinkResolver:
             path = pings.get("/goto?" + redirect.split("/goto?", 1)[1])
             if path is None:
                 continue
-            left = deadline - time.monotonic()
+            # Capped: on some clock readings (t + budget) - t comes out a hair
+            # above the budget in floating point.
+            left = min(PING_BUDGET_S, deadline - time.monotonic())
             if left <= 0:
                 return
             answer = get(path, left)
