@@ -22,6 +22,7 @@ first query ends the copying.
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import json
 import os
@@ -481,8 +482,10 @@ class Donors:
         self._generation = [0] * len(self.sets)
         #: The exit each slot was last renewed from; None for a set given up front.
         self._source: list[str | None] = [None] * len(self.sets)
-        #: The slot the next renewal overwrites once all slots are filled.
-        self._oldest = 0
+        #: When each slot was last renewed, in renewals; the least recent one is
+        #: overwritten once all slots are filled.
+        self._renewed = [0] * len(self.sets)
+        self._clock = 0
         self._at = 0
         self._refused = 0
         self._lock = threading.Lock()
@@ -524,11 +527,13 @@ class Donors:
                 self.sets.append(cookies)
                 self._generation.append(0)
                 self._source.append(None)
+                self._renewed.append(0)
                 at = len(self.sets) - 1
             else:
-                at = self._oldest
+                at = min(range(len(self.sets)), key=self._renewed.__getitem__)
                 self.sets[at] = cookies
-                self._oldest = (at + 1) % len(self.sets)
+            self._clock += 1
+            self._renewed[at] = self._clock
             self._generation[at] += 1
             self._source[at] = source
             self._at = at
@@ -545,15 +550,22 @@ class Donors:
         the error, if the write failed - the set in memory is still used."""
         assert self.out is not None
         path = os.path.join(self.out, f"donor_{at}.json")
-        tmp = path + ".tmp"
+        tmp = None
         try:
             os.makedirs(self.out, exist_ok=True)
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            # A new file of its own, created owner-only, then moved into place:
+            # whatever sat at the path before, the result is owner-only.
+            fd, tmp = tempfile.mkstemp(prefix=f".donor_{at}.", suffix=".tmp", dir=self.out)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump({"t": time.time(), "cookies": list(cookies)}, fh)
             os.replace(tmp, path)
+            tmp = None
         except OSError as exc:
             return describe_error(exc)
+        finally:
+            if tmp is not None:
+                with contextlib.suppress(OSError):
+                    os.remove(tmp)
         return None
 
 

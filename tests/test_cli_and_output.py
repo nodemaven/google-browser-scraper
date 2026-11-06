@@ -247,13 +247,21 @@ def test_load_cookies_drops_lookalike_domains_and_needs_a_live_nid(tmp_path):
     from google_browser_scraper.browser import load_cookies
 
     f = tmp_path / "donor.json"
-    nid = {"name": "NID", "value": "v", "domain": ".google.de", "path": "/"}
-    lookalikes = [
+    nid = {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"}
+    # Only google.com is ever asked; other domains, Google's or not, are dropped.
+    others = [
         {"name": "NID", "value": "x", "domain": d, "path": "/"}
-        for d in (".notgoogle.com", ".google.com.evil.net", ".google.example.com")
+        for d in (".notgoogle.com", ".google.com.evil.net", ".google.co.de", ".google.de")
     ]
-    f.write_text(json.dumps([nid, *lookalikes]), encoding="utf-8")
+    f.write_text(json.dumps([nid, *others]), encoding="utf-8")
     assert load_cookies(str(f)) == (nid,)
+    empty = {"name": "NID", "value": "", "domain": ".google.com", "path": "/"}
+    f.write_text(json.dumps([empty]), encoding="utf-8")
+    with pytest.raises(ValueError, match="no live NID"):
+        load_cookies(str(f))
+    f.write_text(json.dumps([{"name": "NID", "value": "v", "domain": 7}]), encoding="utf-8")
+    with pytest.raises(ValueError, match="name, value and domain"):
+        load_cookies(str(f))
     f.write_text(
         json.dumps([{"name": "AEC", "value": "a", "domain": ".google.com", "path": "/"}]),
         encoding="utf-8",

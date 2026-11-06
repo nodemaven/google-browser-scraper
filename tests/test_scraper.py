@@ -1449,8 +1449,31 @@ def test_a_set_that_cannot_be_written_is_still_used(tmp_path):
 def test_a_written_set_is_readable_by_its_owner_only(tmp_path):
     from google_browser_scraper.scraper import Donors
 
+    # Files left at the paths, readable by anyone, do not pass their mode on.
+    for name in ("donor_0.json", "donor_0.json.tmp"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+        (tmp_path / name).chmod(0o644)
     Donors((), out=str(tmp_path)).renew(DONOR, "exit0", lambda e: None)
     assert (tmp_path / "donor_0.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_a_written_set_leaves_no_temporary_file(tmp_path):
+    from google_browser_scraper.scraper import Donors
+
+    Donors((), out=str(tmp_path)).renew(DONOR, "exit0", lambda e: None)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["donor_0.json"]
+
+
+def test_the_least_recently_renewed_set_is_the_one_overwritten():
+    from google_browser_scraper.scraper import Donors
+
+    a, b, a2, c = (({"name": "NID", "value": v, "domain": ".google.com"},) for v in "abAc")
+    d = Donors((), slots=2)
+    d.renew(a, "exit0", lambda e: None)
+    d.renew(b, "exit1", lambda e: None)
+    d.renew(a2, "exit0", lambda e: None)  # slot 0 is now the freshest
+    d.renew(c, "exit2", lambda e: None)
+    assert d.sets == [a2, c]
 
 
 def test_renewal_counts_served_queries_not_their_pages():

@@ -62,7 +62,7 @@ def ping_paths(page: str) -> dict[str, str]:
 def is_google_host(host: str) -> bool:
     """Whether `host` (or a cookie domain, with its leading dot) is one of
     Google's own: google.com, google.de, google.co.uk and their subdomains."""
-    return bool(_GOOGLE_HOST.fullmatch(host.lower().strip(".")))
+    return isinstance(host, str) and bool(_GOOGLE_HOST.fullmatch(host.lower().strip(".")))
 
 
 def _destination(url: str | None) -> str | None:

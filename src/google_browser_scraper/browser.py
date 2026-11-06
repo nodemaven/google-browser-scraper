@@ -28,10 +28,13 @@ COOKIE_KEYS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure
 
 
 def google_cookie(cookie: dict) -> bool:
-    """Whether a cookie belongs to one of Google's own domains."""
-    from .links import is_google_host
-
-    return is_google_host(cookie.get("domain") or "")
+    """Whether a cookie belongs to google.com, the only Google host the scraper
+    talks to; cookies of country domains would never be sent."""
+    domain = cookie.get("domain")
+    if not isinstance(domain, str):
+        return False
+    host = domain.lower().strip(".")
+    return host == "google.com" or host.endswith(".google.com")
 
 
 def load_cookies(path: str) -> tuple[dict, ...]:
@@ -50,8 +53,8 @@ def load_cookies(path: str) -> tuple[dict, ...]:
     for c in records:
         if (
             not isinstance(c, dict)
-            or not all(c.get(k) for k in ("name", "domain"))
-            or "value" not in c
+            or not all(isinstance(c.get(k), str) and c[k] for k in ("name", "domain"))
+            or not isinstance(c.get("value"), str)
         ):
             raise ValueError(f"{path}: every cookie needs name, value and domain")
         if not google_cookie(c):
@@ -63,7 +66,7 @@ def load_cookies(path: str) -> tuple[dict, ...]:
         out.append(cookie)
     if not out:
         raise ValueError(f"{path}: no Google cookies in it")
-    if not any(c["name"] == "NID" for c in out):
+    if not any(c["name"] == "NID" and c["value"] for c in out):
         raise ValueError(f"{path}: no live NID cookie in it")
     return tuple(out)
 
