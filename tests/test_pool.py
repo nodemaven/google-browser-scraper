@@ -230,6 +230,15 @@ def test_only_one_worker_at_a_time_may_leave_a_template(tmp_path):
     assert not templates.claim()
 
 
+def test_workers_share_one_store_of_cookie_sets():
+    donor = ({"name": "NID", "value": "v", "domain": ".google.com", "path": "/"},)
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), donors=(donor,))
+    p = pool([[[SERVED] * 4], [[SERVED] * 4]], settings=settings)
+    list(p.run(["a", "b", "c", "d"]))
+    first, second = p._scrapers
+    assert first._donors is second._donors
+
+
 def test_workers_with_different_shared_settings_are_refused():
     def make(i):
         return Scraper(

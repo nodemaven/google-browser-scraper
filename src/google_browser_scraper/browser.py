@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 import shutil
 import tempfile
@@ -22,6 +23,73 @@ from dataclasses import dataclass, field, replace
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 HOME_URL = "https://www.google.com/?hl=en"
+
+
+COOKIE_KEYS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite")
+#: The values the browser takes for a cookie's sameSite.
+SAME_SITE = ("Strict", "Lax", "None")
+
+
+def google_cookie(cookie: dict) -> bool:
+    """Whether a cookie belongs to google.com, the only Google host the scraper
+    talks to; cookies of country domains would never be sent."""
+    domain = cookie.get("domain")
+    if not isinstance(domain, str):
+        return False
+    host = domain.lower().strip(".")
+    return host == "google.com" or host.endswith(".google.com")
+
+
+def load_cookies(path: str) -> tuple[dict, ...]:
+    """Google cookies from a JSON file: a list of Playwright cookie records, or
+    an object with such a list under "cookies". Other domains and expired
+    cookies are dropped; a file without a live NID is refused, since that is
+    the cookie Google's trust rides on."""
+    import json
+
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    records = data.get("cookies") if isinstance(data, dict) else data
+    if not isinstance(records, list):
+        raise ValueError(f"{path}: expected a list of cookies or an object with 'cookies'")
+    out = []
+    for c in records:
+        if (
+            not isinstance(c, dict)
+            or not all(isinstance(c.get(k), str) and c[k] for k in ("name", "domain"))
+            or not isinstance(c.get("value"), str)
+        ):
+            raise ValueError(f"{path}: every cookie needs name, value and domain")
+        if not google_cookie(c):
+            continue
+        # A malformed field is refused here rather than by the browser, after a
+        # proxy IP and a browser have been started for it.
+        expires = c.get("expires", -1)
+        if (
+            isinstance(expires, bool)
+            or not isinstance(expires, (int, float))
+            or not math.isfinite(expires)
+        ):
+            raise ValueError(f"{path}: cookie {c['name']!r} has a malformed expires")
+        if 0 < expires < time.time():
+            continue  # already expired; the browser would drop it anyway
+        if (
+            any(not isinstance(c.get(k, False), bool) for k in ("httpOnly", "secure"))
+            or c.get("sameSite", "Lax") not in SAME_SITE
+            # The browser refuses a SameSite=None cookie that is not Secure.
+            or (c.get("sameSite") == "None" and c.get("secure") is not True)
+        ):
+            raise ValueError(
+                f"{path}: cookie {c['name']!r} has a malformed httpOnly, secure or sameSite"
+            )
+        cookie = {k: c[k] for k in COOKIE_KEYS if k in c}
+        cookie.setdefault("path", "/")
+        out.append(cookie)
+    if not out:
+        raise ValueError(f"{path}: no Google cookies in it")
+    if not any(c["name"] == "NID" and c["value"] for c in out):
+        raise ValueError(f"{path}: no live NID cookie in it")
+    return tuple(out)
 
 
 def search_page() -> str:
@@ -103,6 +171,7 @@ class BrowserSession:
         input_mode: str = "type",
         hl: str = "en",
         gl: str | None = None,
+        cookies: list[dict] | tuple[dict, ...] = (),
     ) -> None:
         if input_mode not in INPUT_MODES:
             raise ValueError(f"input mode must be one of {', '.join(INPUT_MODES)}")
@@ -125,6 +194,9 @@ class BrowserSession:
         # A given directory (a copy of another identity's profile) is used as
         # it is; either way the profile is removed on close.
         self._profile = profile_dir
+        #: Cookies added before the first page, once: the profile keeps them
+        #: across a restart.
+        self._cookies = [dict(c) for c in cookies]
         self.page = None
         #: A file to record Chromium's NetLog into from the next launch; the
         #: hybrid reads its request headers from one.
@@ -162,6 +234,9 @@ class BrowserSession:
 
     def _open(self) -> None:
         self._context = self._launch(self._profile)
+        if self._cookies:
+            self._context.add_cookies(self._cookies)
+            self._cookies = []
         pages = self._context.pages
         self.page = pages[0] if pages else self._context.new_page()
 
@@ -277,13 +352,25 @@ class BrowserSession:
         cookies = self._context.cookies(search_page())
         return "; ".join(f"{c['name']}={c['value']}" for c in cookies)
 
+    def google_cookie_records(self) -> tuple[dict, ...]:
+        """The browser's Google cookies as records `load_cookies` and the
+        `cookies` argument take, for starting other browsers from."""
+        now = time.time()
+        return tuple(
+            {k: c[k] for k in COOKIE_KEYS if k in c}
+            for c in self._context.cookies()
+            if google_cookie(c) and not 0 < c.get("expires", -1) < now
+        )
+
     def set_google_cookies(self, header: str, deleted: tuple[str, ...] = ()) -> None:
         """Take the values in a cookie header, keeping each cookie's attributes,
         and drop the cookies named in `deleted` that the header does not set."""
         known = {c["name"]: c for c in self._context.cookies(search_page())}
         pairs = [p.strip().split("=", 1) for p in header.split(";") if "=" in p]
         for name in set(deleted) - {name for name, _ in pairs}:
-            self._context.clear_cookies(name=name, domain=".google.com")
+            # Domain cookies and host-only ones set by www.google.com alike.
+            for domain in (".google.com", "www.google.com"):
+                self._context.clear_cookies(name=name, domain=domain)
         update = []
         for name, value in pairs:
             base = known.get(name)

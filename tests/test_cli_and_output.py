@@ -195,3 +195,121 @@ def test_copies_are_on_by_default_and_can_be_turned_off():
     parser = cli._parser()
     assert parser.parse_args(["search", "q", "--no-proxy"]).clone == 10
     assert parser.parse_args(["search", "q", "--no-proxy", "--clone", "0"]).clone == 0
+
+
+def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
+    import json
+
+    from google_browser_scraper.browser import load_cookies
+
+    f = tmp_path / "donor.json"
+    f.write_text(
+        json.dumps(
+            {
+                "t": 1,
+                "cookies": [
+                    {
+                        "name": "NID",
+                        "value": "v",
+                        "domain": ".google.com",
+                        "path": "/",
+                        "partitionKey": "x",
+                    },
+                    {"name": "_ga", "value": "w", "domain": ".example.com", "path": "/"},
+                    {
+                        "name": "DV",
+                        "value": "old",
+                        "domain": "www.google.com",
+                        "path": "/",
+                        "expires": 1.0,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_cookies(str(f)) == (
+        {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"},
+    )
+    f.write_text(
+        json.dumps([{"name": "x", "value": "1", "domain": ".example.com"}]), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="no Google cookies"):
+        load_cookies(str(f))
+    f.write_text(json.dumps([{"value": "1", "domain": ".google.com"}]), encoding="utf-8")
+    with pytest.raises(ValueError, match="name, value and domain"):
+        load_cookies(str(f))
+
+
+def test_load_cookies_refuses_malformed_fields_before_a_browser_starts(tmp_path):
+    import json
+
+    from google_browser_scraper.browser import load_cookies
+
+    f = tmp_path / "donor.json"
+    nid = {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"}
+    for bad in (
+        {"expires": None},
+        {"expires": "soon"},
+        {"expires": True},
+        {"expires": float("nan")},
+        {"expires": float("inf")},
+        {"httpOnly": "yes"},
+        {"secure": 1},
+        {"sameSite": "lax"},
+        {"sameSite": "None"},
+        {"sameSite": "None", "secure": False},
+    ):
+        f.write_text(json.dumps([{**nid, **bad}]), encoding="utf-8")
+        with pytest.raises(ValueError, match="malformed"):
+            load_cookies(str(f))
+    # An expired cookie is dropped whatever its other fields say.
+    stale = {**nid, "name": "DV", "expires": 1.0, "sameSite": "lax"}
+    f.write_text(json.dumps([nid, stale]), encoding="utf-8")
+    assert load_cookies(str(f)) == (nid,)
+    good = {**nid, "expires": -1, "httpOnly": True, "secure": True, "sameSite": "None"}
+    f.write_text(json.dumps([good]), encoding="utf-8")
+    assert load_cookies(str(f)) == (good,)
+    # A cookie that is dropped anyway is not judged.
+    other = {"name": "x", "value": "1", "domain": ".example.com", "expires": None}
+    f.write_text(json.dumps([nid, other]), encoding="utf-8")
+    assert load_cookies(str(f)) == (nid,)
+
+
+def test_load_cookies_drops_lookalike_domains_and_needs_a_live_nid(tmp_path):
+    import json
+
+    from google_browser_scraper.browser import load_cookies
+
+    f = tmp_path / "donor.json"
+    nid = {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"}
+    # Only google.com is ever asked; other domains, Google's or not, are dropped.
+    others = [
+        {"name": "NID", "value": "x", "domain": d, "path": "/"}
+        for d in (".notgoogle.com", ".google.com.evil.net", ".google.co.de", ".google.de")
+    ]
+    f.write_text(json.dumps([nid, *others]), encoding="utf-8")
+    assert load_cookies(str(f)) == (nid,)
+    empty = {"name": "NID", "value": "", "domain": ".google.com", "path": "/"}
+    f.write_text(json.dumps([empty]), encoding="utf-8")
+    with pytest.raises(ValueError, match="no live NID"):
+        load_cookies(str(f))
+    f.write_text(json.dumps([{"name": "NID", "value": "v", "domain": 7}]), encoding="utf-8")
+    with pytest.raises(ValueError, match="name, value and domain"):
+        load_cookies(str(f))
+    f.write_text(
+        json.dumps([{"name": "AEC", "value": "a", "domain": ".google.com", "path": "/"}]),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="no live NID"):
+        load_cookies(str(f))
+
+
+def test_cookies_is_repeatable_and_leaves_the_queries_alone():
+    parser = cli._parser()
+    args = parser.parse_args(["search", "--cookies", "a.json", "best pizza", "--no-proxy"])
+    assert args.cookies == ["a.json"] and args.queries == ["best pizza"]
+    args = parser.parse_args(["search", "q", "--cookies", "a.json", "--cookies", "b.json"])
+    assert args.cookies == ["a.json", "b.json"]
+    with pytest.raises(SystemExit):
+        parser.parse_args(["search", "q", "--renew-cookies", "-1"])
