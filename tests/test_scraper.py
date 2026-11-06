@@ -1398,6 +1398,28 @@ def test_refusals_of_exits_from_cookie_sets_do_not_stop_the_run_before_the_warm_
     assert used == [sets[0], sets[0], sets[1], sets[1], sets[2], sets[2], sets[3], sets[3], None]
 
 
+def test_a_refused_exit_from_a_set_another_worker_has_left_does_not_count_toward_the_breaker():
+    renewed = ({"name": "NID", "value": "new", "domain": ".google.com", "path": "/"},)
+    settings = Settings(
+        gap_seconds=(0, 0), dwell_seconds=(0, 0), breaker=1, max_exits_per_query=3, donors=(DONOR,)
+    )
+    holder = {}
+
+    class Raced(FakeSession):
+        def search(self, query, direct=False):
+            if self.options.get("cookies") == DONOR:
+                # Another worker renews the set while this exit asks its
+                # first query, so its refusal is stale.
+                holder["s"]._donors.renew(renewed, "other-exit", lambda e: None)
+            return super().search(query, direct)
+
+    s = scraper([[REFUSED], [SERVED]], settings, cls=Raced)
+    holder["s"] = s
+    records = list(s.run(["a"]))
+    assert [r["search_metadata"]["status"] for r in records] == ["Success"]
+    assert [x.options.get("cookies") for x in FakeSession.opened] == [DONOR, renewed]
+
+
 def test_a_renewal_brings_spent_donors_back():
     settings = Settings(
         gap_seconds=(0, 0),

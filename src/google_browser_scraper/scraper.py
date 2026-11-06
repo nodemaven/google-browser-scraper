@@ -1111,11 +1111,13 @@ class Scraper:
                 # Every cookie set refused: new exits warm up again, and the
                 # breaker counts the warm-ups from zero.
                 self._breaker.reset()
-            elif donor != "counted":
+            elif donor is None:
                 # An exit from a cookie set costs next to nothing, and the
                 # sets' own limit (DONOR_REFUSALS each) bounds how many are
-                # tried; counting them too would trip the breaker before
-                # every set had been tried and the warm-ups reached.
+                # tried, as do the workers for exits already started from a
+                # set another worker has since left ("stale"); counting them
+                # too would trip the breaker before every set had been tried
+                # and the warm-ups reached.
                 self._count_failure()
         self.stats.queries_failed += 1
         reason = last_verdict.reason if last_verdict else "unknown"
