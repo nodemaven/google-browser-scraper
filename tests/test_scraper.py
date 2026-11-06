@@ -1488,6 +1488,23 @@ def test_a_set_without_nid_is_not_taken_as_a_donor():
     assert FakeSession.opened[1].options["cookies"] == DONOR
 
 
+def test_a_set_with_an_empty_nid_is_not_taken_as_a_donor(tmp_path):
+    class EmptyNid(CookieSession):
+        jar = ({"name": "NID", "value": "", "domain": ".google.com", "path": "/"},)
+
+    settings = Settings(
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+        max_queries_per_exit=1,
+        donors=(DONOR,),
+        renew_donors_every=1,
+        donors_out=str(tmp_path),
+    )
+    list(scraper([[SERVED], [SERVED]], settings, cls=EmptyNid).run(["a", "b"]))
+    assert FakeSession.opened[1].options["cookies"] == DONOR
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_renewals_fill_slots_then_overwrite_the_oldest_and_the_newest_is_used():
     from google_browser_scraper.scraper import Donors
 

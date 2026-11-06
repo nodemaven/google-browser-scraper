@@ -542,8 +542,10 @@ class Donors:
         renewing again replaces its own set; otherwise they go into a free
         slot, or over the oldest set once `slots` are filled. A refused set
         then hands over to the next slot, a recent set from another exit."""
-        if not any(c.get("name") == "NID" for c in cookies):
-            return  # not a set Google's trust rides on
+        if not any(c.get("name") == "NID" and c.get("value") for c in cookies):
+            # Not a set Google's trust rides on, and `load_cookies` would
+            # refuse it as written out for the next run.
+            return
         with self._lock:
             if source in self._source:
                 at = self._source.index(source)
