@@ -252,13 +252,21 @@ def test_load_cookies_refuses_malformed_fields_before_a_browser_starts(tmp_path)
         {"expires": None},
         {"expires": "soon"},
         {"expires": True},
+        {"expires": float("nan")},
+        {"expires": float("inf")},
         {"httpOnly": "yes"},
         {"secure": 1},
         {"sameSite": "lax"},
+        {"sameSite": "None"},
+        {"sameSite": "None", "secure": False},
     ):
         f.write_text(json.dumps([{**nid, **bad}]), encoding="utf-8")
         with pytest.raises(ValueError, match="malformed"):
             load_cookies(str(f))
+    # An expired cookie is dropped whatever its other fields say.
+    stale = {**nid, "name": "DV", "expires": 1.0, "sameSite": "lax"}
+    f.write_text(json.dumps([nid, stale]), encoding="utf-8")
+    assert load_cookies(str(f)) == (nid,)
     good = {**nid, "expires": -1, "httpOnly": True, "secure": True, "sameSite": "None"}
     f.write_text(json.dumps([good]), encoding="utf-8")
     assert load_cookies(str(f)) == (good,)

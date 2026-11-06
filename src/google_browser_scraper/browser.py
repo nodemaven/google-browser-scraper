@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 import shutil
 import tempfile
@@ -61,21 +62,26 @@ def load_cookies(path: str) -> tuple[dict, ...]:
             raise ValueError(f"{path}: every cookie needs name, value and domain")
         if not google_cookie(c):
             continue
+        # A malformed field is refused here rather than by the browser, after a
+        # proxy IP and a browser have been started for it.
         expires = c.get("expires", -1)
         if (
             isinstance(expires, bool)
             or not isinstance(expires, (int, float))
-            or any(not isinstance(c.get(k, False), bool) for k in ("httpOnly", "secure"))
-            or c.get("sameSite", "Lax") not in SAME_SITE
+            or not math.isfinite(expires)
         ):
-            # Refused here rather than by the browser, after a proxy IP and a
-            # browser have been started for it.
-            raise ValueError(
-                f"{path}: cookie {c['name']!r} has a malformed expires, httpOnly, "
-                "secure or sameSite"
-            )
+            raise ValueError(f"{path}: cookie {c['name']!r} has a malformed expires")
         if 0 < expires < time.time():
             continue  # already expired; the browser would drop it anyway
+        if (
+            any(not isinstance(c.get(k, False), bool) for k in ("httpOnly", "secure"))
+            or c.get("sameSite", "Lax") not in SAME_SITE
+            # The browser refuses a SameSite=None cookie that is not Secure.
+            or (c.get("sameSite") == "None" and c.get("secure") is not True)
+        ):
+            raise ValueError(
+                f"{path}: cookie {c['name']!r} has a malformed httpOnly, secure or sameSite"
+            )
         cookie = {k: c[k] for k in COOKIE_KEYS if k in c}
         cookie.setdefault("path", "/")
         out.append(cookie)
