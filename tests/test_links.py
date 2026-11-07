@@ -450,3 +450,60 @@ def test_held_links_past_the_budget_are_left(monkeypatch):
     )
     assert [r["link"] for r in results] == [None, None]
     assert asked == [PING_A, PING_B] and slept == []
+
+
+def test_links_held_before_the_ping_budget_ran_out_are_still_followed(monkeypatch):
+    clock = iter([0.0, 0.0, 10.0, 31.0] + [31.0] * 20)
+    monkeypatch.setattr(links.time, "monotonic", lambda: next(clock))
+    results, asked, _, _ = held_page_resolver(
+        monkeypatch,
+        {
+            PING_A: [(200, "", interstitial("AAA", 3))],
+            "/goto?url=AAA": [(302, "https://aaa.example/", "")],
+        },
+    )
+    # BBB's ping is past the page's ping budget; AAA, held before it, is still asked again.
+    assert [r["link"] for r in results] == ["https://aaa.example/", None]
+    assert asked == [PING_A, "/goto?url=AAA"]
+
+
+def test_the_resolvers_own_requests_stay_within_parallel_across_pages(monkeypatch):
+    import threading as _threading
+
+    in_flight, peak, lock = [0], [0], _threading.Lock()
+    release = _threading.Event()
+
+    class Opener:
+        def open(self, request, timeout):
+            with lock:
+                in_flight[0] += 1
+                peak[0] = max(peak[0], in_flight[0])
+            release.wait(2)
+            with lock:
+                in_flight[0] -= 1
+
+            class Response:
+                headers = {"Location": "https://dest.example/"}
+
+                def read(self):
+                    return b""
+
+            return Response()
+
+    resolver = LinkResolver(None, relay_factory=None)
+    resolver._opener = Opener()
+    pages = [
+        [
+            {"link": None, "redirect_link": f"https://www.google.com/goto?url=P{p}R{r}"}
+            for r in range(4)
+        ]
+        for p in range(3)
+    ]
+    threads = [_threading.Thread(target=resolver.fill, args=(page,)) for page in pages]
+    for t in threads:
+        t.start()
+    _threading.Timer(0.5, release.set).start()
+    for t in threads:
+        t.join(5)
+    assert peak[0] <= links.PARALLEL
+    assert all(r["link"] == "https://dest.example/" for page in pages for r in page)

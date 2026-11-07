@@ -351,8 +351,9 @@ Each one is resolved with a small request on the proxy IP the page came from,
 with that page's cookies, in the background while the next query runs; a link
 left over is tried through a separate short-lived proxy session. Google answers
 only a few links of a page at once and holds the rest on a "Verifying your
-request" page for a few seconds; those are asked again when the wait is over,
-so a page's links can take up to half a minute while the queries carry on.
+request" page; a link held for up to 30 seconds is asked again when the wait is
+over, twice at most and within 45 seconds a page, so a page's links can take up
+to 45 seconds while the queries carry on.
 Records still come out in the order each browser searched them.
 
 **Traffic.** Everything goes through a small local relay that counts bytes per

@@ -163,6 +163,9 @@ class LinkResolver:
     ) -> None:
         self._relay = None
         self._lock = threading.Lock()
+        #: Requests in flight on the resolver's own exit, across every page whose
+        #: links resolve at once: PARALLEL in all, not per page.
+        self._slots = threading.BoundedSemaphore(PARALLEL)
         self.resolved = 0
         self.failed = 0
         proxy_url = None
@@ -201,12 +204,16 @@ class LinkResolver:
             headers={"User-Agent": UA, "Accept": "text/html", "Accept-Language": "en-US,en;q=0.9"},
         )
         try:
-            response = self._opener.open(request, timeout=self._timeout)
-            location = response.headers.get("Location")
-            response.read()
-        except urllib.error.HTTPError as err:
-            location = err.headers.get("Location") if 300 <= err.code < 400 else None
-            err.read()
+            with self._slots:
+                if not self.enabled:  # refused while this request waited for a slot
+                    return None
+                try:
+                    response = self._opener.open(request, timeout=self._timeout)
+                    location = response.headers.get("Location")
+                    response.read()
+                except urllib.error.HTTPError as err:
+                    location = err.headers.get("Location") if 300 <= err.code < 400 else None
+                    err.read()
         except Exception:
             with self._lock:
                 self.failed += 1
@@ -274,7 +281,7 @@ class LinkResolver:
             # above the budget in floating point.
             left = min(PING_BUDGET_S, deadline - time.monotonic())
             if left <= 0:
-                return
+                break  # the links already held still get their turn
             answer = get(path, left)
             if answer is None:
                 return
