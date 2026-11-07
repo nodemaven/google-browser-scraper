@@ -56,7 +56,12 @@ TOP_HOSTS = 10
 DIRECT_MODES = ("all", "follow-ups", "none")
 #: Records held back while their links resolve in the background; past this
 #: the run waits for the oldest instead of opening more pages ahead of it.
-MAX_HELD = 3
+#: Google holds some links for up to half a minute, so a page's links can take
+#: longer than several pages do.
+MAX_HELD = 8
+#: Pages whose links resolve at once, each on its own thread: one page waiting
+#: out a held link does not hold up the next page's links.
+LINK_WORKERS = 4
 #: What `prewarm()` searches for to find an exit Google serves: common queries
 #: that look like anyone's first search of the day.
 PREWARM_QUERIES = ("weather", "news", "translate", "time", "maps")
@@ -1276,7 +1281,7 @@ class Scraper:
         resolver = self._links()
         if resolver is not None:
             if self._link_pool is None:
-                self._link_pool = ThreadPoolExecutor(1, thread_name_prefix="gbs-links")
+                self._link_pool = ThreadPoolExecutor(LINK_WORKERS, thread_name_prefix="gbs-links")
             make = getattr(identity.session, "link_client", None)
             client = make() if make else None
             self._link_jobs[id(record)] = self._link_pool.submit(
