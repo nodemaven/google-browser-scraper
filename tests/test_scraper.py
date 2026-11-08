@@ -1769,6 +1769,7 @@ def test_start_search_reads_no_more_pages_while_max_held_pages_wait_for_links():
 
 def test_the_hold_on_pages_waiting_for_links_applies_between_pages_of_one_query():
     import threading
+    import time
 
     from google_browser_scraper.scraper import MAX_HELD
 
@@ -1778,11 +1779,16 @@ def test_the_hold_on_pages_waiting_for_links_applies_between_pages_of_one_query(
     try:
         s.start_search("q0")
         s.start_search("q1")  # six pages waiting for links
+        session = FakeSession.opened[0]
         reader = threading.Thread(target=lambda: s.start_search("q2"))
         reader.start()
+        # q2's first two pages make eight waiting: wait for its second page...
+        for _ in range(500):
+            if session.pages_turned >= 5:
+                break
+            time.sleep(0.01)
+        # ...then its third must not follow while the links are held.
         reader.join(0.3)
-        session = FakeSession.opened[0]
-        # q2's first two pages make eight waiting; its third is not read yet.
         assert reader.is_alive() and session.pages_turned == 5
         _GatedResolver.gate.set()
         reader.join(5)
