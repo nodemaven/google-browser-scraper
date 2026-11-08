@@ -1626,3 +1626,89 @@ def test_without_donors_an_exit_whose_http_side_gave_up_is_kept():
 
     list(scraper([[SERVED, SERVED]], cls=OffSession).run(["a", "b"]))
     assert [s.searched for s in FakeSession.opened] == [["a", "b"]]
+
+
+class _GatedResolver:
+    """Fills every /goto link once `gate` is set; records how many results it
+    was handed."""
+
+    gate = None
+    asked: list[int] = []
+    resolved = failed = bytes = 0
+
+    def __init__(self, upstream, relay_factory=None):
+        import threading
+
+        self.lock = threading.Lock()
+
+    def fill(self, results):
+        type(self).asked.append(len(results))
+        assert self.gate.wait(5)
+        with self.lock:
+            for r in results:
+                if r["link"] is None and "/goto?" in (r.get("redirect_link") or ""):
+                    r["link"] = "https://resolved.example/"
+
+    def close(self):
+        pass
+
+    def hosts(self):
+        return {}
+
+
+def _gated(scripts):
+    import threading
+
+    _GatedResolver.gate, _GatedResolver.asked = threading.Event(), []
+    FakeSession.opened, FakeRelay.by_address = [], {}
+    scripts = list(scripts)
+    return Scraper(
+        ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
+        Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+        session_factory=lambda proxy, **o: FakeSession(proxy, script=scripts.pop(0), **o),
+        relay_factory=FakeRelay,
+        resolver_factory=_GatedResolver,
+        sleep=lambda x: None,
+    )
+
+
+def _held(record):
+    return sum(
+        1
+        for r in record["organic_results"]
+        if r["link"] is None and "/goto?" in (r.get("redirect_link") or "")
+    )
+
+
+def test_start_search_returns_once_the_page_is_read_and_the_links_follow():
+    s = _gated([[SERVED, SERVED]])
+    try:
+        pending = s.start_search("a")
+        assert not pending.done() and not pending.wait(0.05)
+        early = pending.snapshot()
+        assert early is not pending.records  # a copy, safe while links are written
+        assert early[0]["search_metadata"]["links_pending"] == _held(early[0]) > 0
+        # The browser is free: the next query is read while "a" still waits.
+        assert s.start_search("b").records[0]["search_parameters"]["q"] == "b"
+        _GatedResolver.gate.set()
+        assert pending.wait(5)
+        final = pending.snapshot()
+        assert final is pending.records and "links_pending" not in final[0]["search_metadata"]
+        assert final[0]["organic_results"][2]["link"] == "https://resolved.example/"
+    finally:
+        _GatedResolver.gate.set()
+        s.close()
+
+
+@pytest.mark.parametrize("links", [None, 2, 0])
+def test_links_asks_the_first_n_organic_results_only(links):
+    s = _gated([[SERVED]])
+    _GatedResolver.gate.set()
+    try:
+        records = s.search("a", links=links)
+    finally:
+        s.close()
+    total = len(records[0]["organic_results"])
+    assert _GatedResolver.asked == ([] if links == 0 else [total if links is None else links])
+    if links == 0:
+        assert "links" not in records[0]["search_metadata"]["timings"]

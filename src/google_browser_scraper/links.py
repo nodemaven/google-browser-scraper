@@ -190,6 +190,12 @@ class LinkResolver:
         self.enabled = True
 
     @property
+    def lock(self) -> threading.Lock:
+        """Held whenever a link is written into a result, so a caller holding
+        it can copy records that are still being filled in."""
+        return self._lock
+
+    @property
     def bytes(self) -> int:
         return self._relay.total if self._relay is not None else 0
 
@@ -246,8 +252,9 @@ class LinkResolver:
             return
         with ThreadPoolExecutor(max_workers=min(PARALLEL, len(todo))) as pool:
             links = list(pool.map(lambda r: self.resolve(r["redirect_link"]), todo))
-        for result, link in zip(todo, links, strict=True):
-            result["link"] = link
+        with self._lock:
+            for result, link in zip(todo, links, strict=True):
+                result["link"] = link
 
     def fill_from_pings(
         self,

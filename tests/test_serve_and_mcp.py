@@ -6,16 +6,18 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 from google_browser_scraper.mcp import McpServer, compact
-from google_browser_scraper.scraper import ExitsRefused, Settings, Stats
-from google_browser_scraper.server import Worker, make_handler
+from google_browser_scraper.scraper import ExitsRefused, PendingLinks, Settings, Stats
+from google_browser_scraper.server import Archive, Worker, make_handler
 
 
 def record(query, page=1, error=None):
@@ -48,6 +50,30 @@ class FakeScraper:
         self.threads, self.calls, self.closed, self.resets = set(), [], False, 0
         self.settle_flags, self.settled = [], 0
         self.locales = []
+        self.link_limits = []
+        #: Set to make start_search return records whose links are still pending.
+        self.links_gate: threading.Event | None = None
+
+    def start_search(self, query, settle=True, links=None, **locale):
+        self.link_limits.append(links)
+        records = self.search(query, settle, **locale)
+        if self.links_gate is None:
+            return PendingLinks(records)
+        lock, gate = threading.Lock(), self.links_gate
+        for r in records:
+            r["organic_results"][0].update(
+                link=None, redirect_link="https://www.google.com/goto?url=A"
+            )
+
+        def fill(record):
+            assert gate.wait(10)
+            with lock:
+                record["organic_results"][0]["link"] = "https://late.example/"
+
+        pool = ThreadPoolExecutor(2)
+        jobs = {i: pool.submit(fill, r) for i, r in enumerate(records)}
+        pool.shutdown(wait=False)
+        return PendingLinks(records, jobs, lock)
 
     def search(self, query, settle=True, **locale):
         self.threads.add(threading.get_ident())
@@ -496,3 +522,132 @@ def test_an_ai_overview_alone_is_not_a_tool_error():
     server = McpServer(OverviewOnly(), stdout=io.StringIO())
     args = {"name": "google_search", "arguments": {"query": "q", "pages": 2}}
     assert rpc(server, "tools/call", args)["result"]["isError"] is False
+
+
+# -- links after the page -----------------------------------------------------
+
+
+def finished(url):
+    """The archived search once it is no longer Processing."""
+    for _ in range(500):
+        body = get(url)[1]
+        if body["search_metadata"]["status"] != "Processing":
+            return body
+        time.sleep(0.01)
+    raise AssertionError("still processing")
+
+
+def test_the_browser_is_free_while_a_caller_waits_for_its_links(api, worker):
+    worker.fake.links_gate = gate = threading.Event()
+    base, answer = api(), []
+    try:
+        caller = threading.Thread(target=lambda: answer.append(get(base + "/search.json?q=a")))
+        caller.start()
+        for _ in range(500):
+            if worker.fake.calls:
+                break
+            time.sleep(0.01)
+        # "a" is still waiting for its links; another job runs on the worker meanwhile.
+        assert worker.submit(lambda s: s.search("b")).result(timeout=2)
+        assert not answer
+        gate.set()
+        caller.join(10)
+    finally:
+        gate.set()
+    status, body = answer[0]
+    assert status == 200 and body["organic_results"][0]["link"] == "https://late.example/"
+    assert "links_pending" not in body["search_metadata"]
+
+
+def test_links_wait_answers_with_what_is_in_and_the_archive_has_the_rest(api, worker):
+    worker.fake.links_gate = gate = threading.Event()
+    base = api()
+    try:
+        status, body = get(base + "/search.json?q=a&links_wait=0.2")
+        assert status == 200 and body["search_metadata"]["status"] == "Success"
+        assert body["organic_results"][0]["link"] is None
+        assert body["search_metadata"]["links_pending"] == 1
+        endpoint = body["search_metadata"]["json_endpoint"]
+        assert endpoint == f"/searches/{body['search_metadata']['id']}.json"
+        assert get(base + endpoint)[1]["search_metadata"]["status"] == "Processing"
+        gate.set()
+        finished(base + endpoint)
+    finally:
+        gate.set()
+    status, kept = get(base + endpoint)
+    assert status == 200 and kept["organic_results"][0]["link"] == "https://late.example/"
+    assert "links_pending" not in kept["search_metadata"]
+
+
+def test_async_answers_at_once_and_the_archive_has_the_record_later(api, worker):
+    worker.fake.links_gate = gate = threading.Event()
+    base = api()
+    try:
+        status, body = get(base + "/search.json?q=a&async=true")
+        assert status == 200 and body["search_metadata"]["status"] == "Processing"
+        assert body["search_parameters"] == {"q": "a", "pages": 1}
+        endpoint = body["search_metadata"]["json_endpoint"]
+        gate.set()
+        finished(base + endpoint)
+    finally:
+        gate.set()
+    kept = get(base + endpoint)[1]
+    assert kept["search_metadata"]["status"] == "Success"
+    assert kept["search_metadata"]["id"] == body["search_metadata"]["id"]
+    assert kept["organic_results"][0]["link"] == "https://late.example/"
+    worker.call(lambda s: None)  # the upkeep was queued after the search
+    assert worker.fake.settled == 1 and worker.fake.settle_flags == [False]
+
+
+def test_a_failed_async_search_is_kept_as_an_error(monkeypatch):
+    fake = FakeScraper(refuse=True)
+    worker = Worker(lambda: fake, log=lambda m: None).start()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(worker, api_key=None, max_pages=3))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_port}"
+    try:
+        endpoint = get(base + "/search.json?q=x&async=1")[1]["search_metadata"]["json_endpoint"]
+        worker.call(lambda s: None)
+        status, kept = get(base + endpoint)
+    finally:
+        server.shutdown()
+        worker.stop()
+    assert status == 200 and kept["search_metadata"]["status"] == "Error"
+    assert "6 exits" in kept["error"] and fake.resets == 1 and fake.settled == 0
+
+
+def test_links_reaches_the_scraper(api, worker):
+    base = api()
+    assert get(base + "/search.json?q=a&links=5")[0] == 200
+    assert get(base + "/search.json?q=b")[0] == 200
+    assert worker.fake.link_limits == [5, None]
+
+
+@pytest.mark.parametrize(
+    "query", ["links=-1", "links=five", "links=2.5", "links_wait=-1", "links_wait=soon"]
+)
+def test_bad_link_parameters(api, worker, query):
+    assert get(api() + "/search.json?q=x&" + query)[0] == 400
+    assert worker.fake.calls == []
+
+
+def test_an_unknown_or_expired_search_is_a_404(worker):
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0),
+        make_handler(worker, api_key=None, max_pages=3, archive=Archive(ttl=-1)),
+    )
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_port}"
+    try:
+        endpoint = get(base + "/search.json?q=a")[1]["search_metadata"]["json_endpoint"]
+        assert get(base + endpoint)[0] == 404  # expired at once
+        assert get(base + "/searches/" + "0" * 32 + ".json")[0] == 404
+    finally:
+        server.shutdown()
+
+
+def test_the_archive_keeps_the_newest_searches():
+    archive = Archive(size=2)
+    first, second, third = (archive.new({"q": q}) for q in "abc")
+    assert archive.get(first.id) is None
+    assert archive.get(second.id) is second and archive.get(third.id) is third

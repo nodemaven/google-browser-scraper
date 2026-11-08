@@ -23,6 +23,7 @@ first query ends the copying.
 from __future__ import annotations
 
 import contextlib
+import copy
 import gzip
 import json
 import os
@@ -35,6 +36,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as wait_futures
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -755,11 +757,16 @@ class Stats:
         return out
 
 
-def _fill_links(resolver, record: dict[str, Any], page: str = "", client=None) -> None:
+def _fill_links(
+    resolver, record: dict[str, Any], page: str = "", client=None, limit: int | None = None
+) -> None:
     """A record's links: on the exit its page came from, through each result's
-    ping URL, then from the resolver's own exit for whatever is left."""
+    ping URL, then from the resolver's own exit for whatever is left. With
+    `limit`, only the first that many organic results are asked."""
     mark = time.monotonic()
     results = record.get("organic_results") or []
+    if limit is not None:
+        results = results[:limit]
     if client is not None:
         try:
             resolver.fill_from_pings(results, page, client.get)
@@ -768,7 +775,59 @@ def _fill_links(resolver, record: dict[str, Any], page: str = "", client=None) -
         finally:
             client.close()
     resolver.fill(results)
-    record["search_metadata"].setdefault("timings", {})["links"] = round(time.monotonic() - mark, 2)
+    with getattr(resolver, "lock", None) or contextlib.nullcontext():
+        timings = record["search_metadata"].setdefault("timings", {})
+        timings["links"] = round(time.monotonic() - mark, 2)
+
+
+class PendingLinks:
+    """A query's records, read, while their links go on resolving on the link
+    threads.
+
+    `wait()` blocks until every link is in or a deadline passes; `snapshot()`
+    is the records as they stand, safe to serialize while links are still
+    being written into them: a copy, made under the resolver's lock, with
+    `search_metadata.links_pending` on each record whose links are not all in.
+    """
+
+    def __init__(
+        self,
+        records: list[dict[str, Any]],
+        jobs: dict[int, Future] | None = None,
+        lock: Any = None,
+    ) -> None:
+        self.records = records
+        #: Index into `records` -> the job filling that record's links.
+        self._jobs = jobs or {}
+        self.lock = lock or threading.Lock()
+
+    def done(self) -> bool:
+        return all(job.done() for job in self._jobs.values())
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """True once every link is in, False if `timeout` seconds passed first."""
+        if not self._jobs:
+            return True
+        finished, _ = wait_futures(list(self._jobs.values()), timeout=timeout)
+        return len(finished) == len(self._jobs)
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        if self.done():
+            return self.records
+        with self.lock:
+            out = copy.deepcopy(self.records)
+            for index, job in self._jobs.items():
+                if not job.done():
+                    out[index]["search_metadata"]["links_pending"] = _unresolved(out[index])
+        return out
+
+
+def _unresolved(record: dict[str, Any]) -> int:
+    return sum(
+        1
+        for r in record.get("organic_results") or []
+        if r.get("link") is None and "/goto?" in (r.get("redirect_link") or "")
+    )
 
 
 def _by_size(hosts: dict[str, int]) -> dict[str, int]:
@@ -878,6 +937,8 @@ class Scraper:
         self._unsettled: tuple[Identity, bool] | None = None
         #: The hl and gl of the query being run, where `search()` was given them.
         self._locale: dict[str, str] = {}
+        #: Organic results whose links the query being run asks for (None: all).
+        self._link_limit: int | None = None
         self._spares: deque[Future] = deque()
         self._warmer: ThreadPoolExecutor | None = None
         self._cancel = threading.Event()
@@ -947,7 +1008,12 @@ class Scraper:
             query = following
 
     def search(
-        self, query: str, settle: bool = True, hl: str | None = None, gl: str | None = None
+        self,
+        query: str,
+        settle: bool = True,
+        hl: str | None = None,
+        gl: str | None = None,
+        links: int | None = None,
     ) -> list[dict[str, Any]]:
         """One query, keeping the identity open for the next call (serve, MCP).
 
@@ -957,14 +1023,39 @@ class Scraper:
         browser, which can take longer than the search itself.
 
         `hl` and `gl` override the settings for this query; its results page is
-        then opened directly whatever `direct` says.
+        then opened directly whatever `direct` says. `links` asks the links of
+        the first that many organic results only (0: none).
         """
+        pending = self.start_search(query, settle=settle, hl=hl, gl=gl, links=links)
+        return [self._finish(r) for r in pending.records]
+
+    def start_search(
+        self,
+        query: str,
+        settle: bool = True,
+        hl: str | None = None,
+        gl: str | None = None,
+        links: int | None = None,
+    ) -> PendingLinks:
+        """As `search`, but returns once the results pages are read: their
+        links go on resolving on the link threads, so the browser is free for
+        the next query while a caller waits for them (`PendingLinks.wait`)."""
         self.settle()
+        # Jobs a caller of an earlier start_search waited for, or did not.
+        self._link_jobs = {k: job for k, job in self._link_jobs.items() if not job.done()}
         self._locale = {k: v for k, v in (("hl", hl), ("gl", gl)) if v}
+        self._link_limit = links
         try:
-            return [self._finish(r) for r in self._query(query.strip(), settle=settle)]
+            records = list(self._query(query.strip(), settle=settle))
         finally:
             self._locale = {}
+            self._link_limit = None
+        jobs = {
+            index: self._link_jobs[id(record)]
+            for index, record in enumerate(records)
+            if id(record) in self._link_jobs
+        }
+        return PendingLinks(records, jobs, getattr(self._resolver, "lock", None))
 
     def _hl(self) -> str:
         return self._locale.get("hl") or self.settings.hl
@@ -1279,13 +1370,13 @@ class Scraper:
         if saved:
             record["search_metadata"]["raw_html_file"] = saved
         resolver = self._links()
-        if resolver is not None:
+        if resolver is not None and self._link_limit != 0:
             if self._link_pool is None:
                 self._link_pool = ThreadPoolExecutor(LINK_WORKERS, thread_name_prefix="gbs-links")
             make = getattr(identity.session, "link_client", None)
             client = make() if make else None
             self._link_jobs[id(record)] = self._link_pool.submit(
-                _fill_links, resolver, record, fetched.html, client
+                _fill_links, resolver, record, fetched.html, client, self._link_limit
             )
         return record
 
