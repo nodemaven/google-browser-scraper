@@ -1049,16 +1049,15 @@ class Scraper:
         self.settle()
         # Jobs a caller of an earlier start_search waited for, or did not.
         self._link_jobs = {k: job for k, job in self._link_jobs.items() if not job.done()}
-        # As `run` holds at most MAX_HELD records: no more pages are read while
-        # that many are still waiting for their links.
-        unfinished = list(self._link_jobs.values())
-        while len(unfinished) >= MAX_HELD:
-            wait_futures(unfinished, return_when=FIRST_COMPLETED)
-            unfinished = [job for job in unfinished if not job.done()]
+        self._hold_back()
         self._locale = {k: v for k, v in (("hl", hl), ("gl", gl)) if v}
         self._link_limit = links
+        records: list[dict[str, Any]] = []
         try:
-            records = list(self._query(query.strip(), settle=settle))
+            for record in self._query(query.strip(), settle=settle):
+                records.append(record)
+                if len(records) < self.settings.pages:
+                    self._hold_back()  # before the next page is read
         finally:
             self._locale = {}
             self._link_limit = None
@@ -1068,6 +1067,14 @@ class Scraper:
             if id(record) in self._link_jobs
         }
         return PendingLinks(records, jobs, getattr(self._resolver, "lock", None), links)
+
+    def _hold_back(self) -> None:
+        """As `run` holds at most MAX_HELD records: read no more pages while
+        that many are still waiting for their links."""
+        unfinished = [job for job in self._link_jobs.values() if not job.done()]
+        while len(unfinished) >= MAX_HELD:
+            wait_futures(unfinished, return_when=FIRST_COMPLETED)
+            unfinished = [job for job in unfinished if not job.done()]
 
     def _hl(self) -> str:
         return self._locale.get("hl") or self.settings.hl

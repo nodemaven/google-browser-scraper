@@ -722,3 +722,12 @@ def test_async_searches_waiting_at_once_are_bounded(api, worker, monkeypatch):
     kept = finished(base + first[1]["search_metadata"]["json_endpoint"])
     assert kept["search_metadata"]["status"] == "Success"
     assert get(base + "/search.json?q=c&async=true")[0] == 200  # the slot is free again
+
+
+def test_a_timeout_error_of_the_search_itself_is_not_reported_as_no_answer(api, worker):
+    def times_out(*args, **kwargs):
+        raise TimeoutError("page load took too long")
+
+    worker.fake.search = times_out
+    status, body = get(api() + "/search.json?q=x")
+    assert status == 500 and body["error"] == "TimeoutError: page load took too long"

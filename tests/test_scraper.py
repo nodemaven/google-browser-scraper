@@ -1656,7 +1656,7 @@ class _GatedResolver:
         return {}
 
 
-def _gated(scripts):
+def _gated(scripts, settings=None):
     import threading
 
     _GatedResolver.gate, _GatedResolver.asked = threading.Event(), []
@@ -1664,7 +1664,7 @@ def _gated(scripts):
     scripts = list(scripts)
     return Scraper(
         ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
-        Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+        settings or Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)),
         session_factory=lambda proxy, **o: FakeSession(proxy, script=scripts.pop(0), **o),
         relay_factory=FakeRelay,
         resolver_factory=_GatedResolver,
@@ -1762,6 +1762,31 @@ def test_start_search_reads_no_more_pages_while_max_held_pages_wait_for_links():
         _GatedResolver.gate.set()
         reader.join(5)
         assert last and last[0].records[0]["search_parameters"]["q"] == "last"
+    finally:
+        _GatedResolver.gate.set()
+        s.close()
+
+
+def test_the_hold_on_pages_waiting_for_links_applies_between_pages_of_one_query():
+    import threading
+
+    from google_browser_scraper.scraper import MAX_HELD
+
+    assert MAX_HELD == 8  # the page counts below assume it
+    settings = Settings(pages=3, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    s = _gated([[SERVED] * 9], settings)
+    try:
+        s.start_search("q0")
+        s.start_search("q1")  # six pages waiting for links
+        reader = threading.Thread(target=lambda: s.start_search("q2"))
+        reader.start()
+        reader.join(0.3)
+        session = FakeSession.opened[0]
+        # q2's first two pages make eight waiting; its third is not read yet.
+        assert reader.is_alive() and session.pages_turned == 5
+        _GatedResolver.gate.set()
+        reader.join(5)
+        assert not reader.is_alive() and session.pages_turned == 6
     finally:
         _GatedResolver.gate.set()
         s.close()

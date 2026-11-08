@@ -444,7 +444,9 @@ def make_handler(
                 return self._send(200, search.body())
             future = worker.submit(job)
             try:
-                pending = future.result(timeout=REQUEST_TIMEOUT_S)
+                # Waits without raising what the job raised: a TimeoutError of
+                # the job's own is not this wait running out.
+                future.exception(timeout=REQUEST_TIMEOUT_S)
             except FutureTimeout:
                 if future.cancel():  # still queued: it never runs
                     search.fail("cancelled: no answer in time")
@@ -452,6 +454,8 @@ def make_handler(
                     future.add_done_callback(lambda done: _landed(search, done, worker))
                 message = f"TimeoutError: no answer within {REQUEST_TIMEOUT_S} s"
                 return self._send(500, {"error": message})
+            try:
+                pending = future.result()
             except ExitsRefused as exc:
                 search.fail(str(exc))
                 return self._send(503, {"error": str(exc)})
