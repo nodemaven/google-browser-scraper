@@ -563,7 +563,9 @@ def test_links_wait_answers_with_what_is_in_and_the_archive_has_the_rest(api, wo
     worker.fake.links_gate = gate = threading.Event()
     base = api()
     try:
+        started = time.monotonic()
         status, body = get(base + "/search.json?q=a&links_wait=0.2")
+        assert time.monotonic() - started >= 0.2  # it did wait
         assert status == 200 and body["search_metadata"]["status"] == "Success"
         assert body["organic_results"][0]["link"] is None
         assert body["search_metadata"]["links_pending"] == 1
@@ -631,19 +633,44 @@ def test_bad_link_parameters(api, worker, query):
     assert worker.fake.calls == []
 
 
+def test_links_wait_answers_as_soon_as_the_links_are_in(api, worker):
+    worker.fake.links_gate = gate = threading.Event()
+    threading.Timer(0.05, gate.set).start()
+    started = time.monotonic()
+    status, body = get(api() + "/search.json?q=a&links_wait=5")
+    assert time.monotonic() - started < 4
+    assert status == 200 and body["organic_results"][0]["link"] == "https://late.example/"
+    assert "links_pending" not in body["search_metadata"]
+
+
 def test_an_unknown_or_expired_search_is_a_404(worker):
+    now = [1000.0]
     server = ThreadingHTTPServer(
         ("127.0.0.1", 0),
-        make_handler(worker, api_key=None, max_pages=3, archive=Archive(ttl=-1)),
+        make_handler(
+            worker, api_key=None, max_pages=3, archive=Archive(ttl=60, clock=lambda: now[0])
+        ),
     )
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_port}"
     try:
         endpoint = get(base + "/search.json?q=a")[1]["search_metadata"]["json_endpoint"]
-        assert get(base + endpoint)[0] == 404  # expired at once
+        now[0] += 59
+        assert get(base + endpoint)[0] == 200
+        now[0] += 2
+        assert get(base + endpoint)[0] == 404  # past its hour, though nothing evicted it
         assert get(base + "/searches/" + "0" * 32 + ".json")[0] == 404
     finally:
         server.shutdown()
+
+
+def test_a_several_page_search_is_archived_as_an_array_even_with_one_page():
+    search = Archive().new({"q": "a", "pages": 2})
+    search.land(PendingLinks([record("a")]))
+    assert isinstance(search.body(), list) and len(search.body()) == 1
+    single = Archive().new({"q": "a", "pages": 1})
+    single.land(PendingLinks([record("a")]))
+    assert single.body()["search_parameters"]["q"] == "a"
 
 
 def test_the_archive_keeps_the_newest_searches():

@@ -17,7 +17,8 @@ its links.
 rest are null and `search_metadata.links_pending` counts them. `async=true`
 answers at once with `search_metadata.id`; `/searches/<id>.json` answers with
 status `Processing` until the search and its links are done, then with the
-record. Every search, async or not, is kept there for `ARCHIVE_TTL_S`.
+record. Every search, async or not, is kept there for up to `ARCHIVE_TTL_S`,
+the newest `ARCHIVE_SIZE` of them.
 
 `/health` answers 503 `warming` while `--prewarm` is still looking for an exit
 Google serves, and 503 `busy` when a long search holds the scraper.
@@ -240,10 +241,10 @@ class Search:
     """One request's search as `/searches/<id>.json` tells it: still running,
     failed, or its records (status `Processing` while links are pending)."""
 
-    def __init__(self, ident: str, parameters: dict[str, Any]) -> None:
+    def __init__(self, ident: str, parameters: dict[str, Any], created: float) -> None:
         self.id = ident
         self.parameters = parameters
-        self.created = time.monotonic()
+        self.created = created
         self.pending: PendingLinks | None = None
         self.error: str | None = None
 
@@ -280,22 +281,29 @@ class Search:
         if not done and records is not pending.records:  # a copy: safe to mark
             for record in records:
                 record["search_metadata"]["status"] = "Processing"
-        return records[0] if len(records) == 1 else records
+        # The shape the search's own answer had: one page is the record itself.
+        one = self.parameters.get("pages", 1) == 1 and len(records) == 1
+        return records[0] if one else records
 
 
 class Archive:
-    """The searches of the last `ttl` seconds, at most `size` of them."""
+    """The searches of the last `ttl` seconds, the newest `size` of them."""
 
-    def __init__(self, ttl: float = ARCHIVE_TTL_S, size: int = ARCHIVE_SIZE) -> None:
-        self._ttl, self._size = ttl, size
+    def __init__(
+        self,
+        ttl: float = ARCHIVE_TTL_S,
+        size: int = ARCHIVE_SIZE,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._ttl, self._size, self._clock = ttl, size, clock
         self._items: OrderedDict[str, Search] = OrderedDict()
         self._lock = threading.Lock()
 
     def new(self, parameters: dict[str, Any]) -> Search:
-        search = Search(uuid.uuid4().hex, parameters)
+        search = Search(uuid.uuid4().hex, parameters, self._clock())
         with self._lock:
             self._items[search.id] = search
-            limit = time.monotonic() - self._ttl
+            limit = self._clock() - self._ttl
             while self._items and (
                 len(self._items) > self._size or next(iter(self._items.values())).created < limit
             ):
@@ -305,7 +313,7 @@ class Archive:
     def get(self, ident: str) -> Search | None:
         with self._lock:
             search = self._items.get(ident)
-        if search is None or search.created < time.monotonic() - self._ttl:
+        if search is None or search.created < self._clock() - self._ttl:
             return None
         return search
 

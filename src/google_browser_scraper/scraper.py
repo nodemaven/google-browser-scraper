@@ -788,6 +788,7 @@ class PendingLinks:
     is the records as they stand, safe to serialize while links are still
     being written into them: a copy, made under the resolver's lock, with
     `search_metadata.links_pending` on each record whose links are not all in.
+    `limit` is the number of organic results whose links were asked (None: all).
     """
 
     def __init__(
@@ -795,11 +796,13 @@ class PendingLinks:
         records: list[dict[str, Any]],
         jobs: dict[int, Future] | None = None,
         lock: Any = None,
+        limit: int | None = None,
     ) -> None:
         self.records = records
         #: Index into `records` -> the job filling that record's links.
         self._jobs = jobs or {}
         self.lock = lock or threading.Lock()
+        self.limit = limit
 
     def done(self) -> bool:
         return all(job.done() for job in self._jobs.values())
@@ -818,15 +821,16 @@ class PendingLinks:
             out = copy.deepcopy(self.records)
             for index, job in self._jobs.items():
                 if not job.done():
-                    out[index]["search_metadata"]["links_pending"] = _unresolved(out[index])
+                    pending = _unresolved(out[index], self.limit)
+                    out[index]["search_metadata"]["links_pending"] = pending
         return out
 
 
-def _unresolved(record: dict[str, Any]) -> int:
+def _unresolved(record: dict[str, Any], limit: int | None = None) -> int:
+    """Results among the first `limit` (all with None) still waiting for a link."""
+    results = (record.get("organic_results") or [])[:limit]
     return sum(
-        1
-        for r in record.get("organic_results") or []
-        if r.get("link") is None and "/goto?" in (r.get("redirect_link") or "")
+        1 for r in results if r.get("link") is None and "/goto?" in (r.get("redirect_link") or "")
     )
 
 
@@ -1040,6 +1044,8 @@ class Scraper:
         """As `search`, but returns once the results pages are read: their
         links go on resolving on the link threads, so the browser is free for
         the next query while a caller waits for them (`PendingLinks.wait`)."""
+        if links is not None and links < 0:
+            raise ValueError("links must be 0 or more")
         self.settle()
         # Jobs a caller of an earlier start_search waited for, or did not.
         self._link_jobs = {k: job for k, job in self._link_jobs.items() if not job.done()}
@@ -1055,7 +1061,7 @@ class Scraper:
             for index, record in enumerate(records)
             if id(record) in self._link_jobs
         }
-        return PendingLinks(records, jobs, getattr(self._resolver, "lock", None))
+        return PendingLinks(records, jobs, getattr(self._resolver, "lock", None), links)
 
     def _hl(self) -> str:
         return self._locale.get("hl") or self.settings.hl

@@ -1629,11 +1629,11 @@ def test_without_donors_an_exit_whose_http_side_gave_up_is_kept():
 
 
 class _GatedResolver:
-    """Fills every /goto link once `gate` is set; records how many results it
-    was handed."""
+    """Fills every /goto link once `gate` is set; records the positions of the
+    results it was handed."""
 
     gate = None
-    asked: list[int] = []
+    asked: list[list[int]] = []
     resolved = failed = bytes = 0
 
     def __init__(self, upstream, relay_factory=None):
@@ -1642,7 +1642,7 @@ class _GatedResolver:
         self.lock = threading.Lock()
 
     def fill(self, results):
-        type(self).asked.append(len(results))
+        type(self).asked.append([r["position"] for r in results])
         assert self.gate.wait(5)
         with self.lock:
             for r in results:
@@ -1708,7 +1708,35 @@ def test_links_asks_the_first_n_organic_results_only(links):
         records = s.search("a", links=links)
     finally:
         s.close()
-    total = len(records[0]["organic_results"])
-    assert _GatedResolver.asked == ([] if links == 0 else [total if links is None else links])
+    positions = [r["position"] for r in records[0]["organic_results"]]
+    assert positions[:2] == [1, 2]
+    assert _GatedResolver.asked == ([] if links == 0 else [positions[:links]])
     if links == 0:
         assert "links" not in records[0]["search_metadata"]["timings"]
+
+
+def test_links_pending_counts_only_the_results_whose_links_were_asked():
+    s = _gated([[SERVED]])
+    try:
+        pending = s.start_search("a", links=2)
+        early = pending.snapshot()[0]
+        # The third result is the one waiting for a link, and it was not asked.
+        assert early["search_metadata"]["links_pending"] == _held_first(early, 2) == 0
+        assert _held(early) == 1
+    finally:
+        _GatedResolver.gate.set()
+        s.close()
+
+
+def _held_first(record, n):
+    return _held({"organic_results": record["organic_results"][:n]})
+
+
+def test_a_negative_links_is_refused_before_a_query():
+    s = _gated([[SERVED]])
+    try:
+        with pytest.raises(ValueError, match="links"):
+            s.start_search("a", links=-1)
+        assert not FakeSession.opened
+    finally:
+        s.close()
