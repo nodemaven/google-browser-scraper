@@ -18,7 +18,8 @@ rest are null and `search_metadata.links_pending` counts them. `async=true`
 answers at once with `search_metadata.id`; `/searches/<id>.json` answers with
 status `Processing` until the search and its links are done, then with the
 record. Every search, async or not, is kept there for up to `ARCHIVE_TTL_S`,
-the newest `ARCHIVE_SIZE` of them.
+the newest `ARCHIVE_SIZE` of them. At most `ASYNC_QUEUED_MAX` async searches
+wait for the browser at once; a request past that is answered 429.
 
 `/health` answers 503 `warming` while `--prewarm` is still looking for an exit
 Google serves, and 503 `busy` when a long search holds the scraper.
@@ -52,6 +53,8 @@ REQUEST_TIMEOUT_S = 900
 #: How long `/searches/<id>.json` keeps a search, and how many it keeps.
 ARCHIVE_TTL_S = 3600
 ARCHIVE_SIZE = 500
+#: `async=true` searches waiting for the browser at once; more are answered 429.
+ASYNC_QUEUED_MAX = 50
 STARTUP_TIMEOUT_S = 60
 #: How long `stop()` waits for the job in hand. Upkeep after a query - a browser
 #: restart or a template copy, each with a 40-60 s settle - can take this long.
@@ -356,6 +359,17 @@ def make_handler(
     worker: Worker, *, api_key: str | None, max_pages: int, archive: Archive | None = None
 ):
     archive = archive or Archive()
+    #: Async searches submitted and not yet run.
+    queued = [0]
+    queued_lock = threading.Lock()
+
+    def ran(search: Search):
+        def done(future: Future) -> None:
+            with queued_lock:
+                queued[0] -= 1
+            _landed(search, future, worker)
+
+        return done
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "google-browser-scraper"
@@ -414,14 +428,30 @@ def make_handler(
                 return self._send(
                     400, {"error": f"links_wait must be between 0 and {REQUEST_TIMEOUT_S}"}
                 )
+            asynchronous = params.get("async", "").lower() in ("1", "true")
+            if asynchronous:
+                with queued_lock:
+                    if queued[0] >= ASYNC_QUEUED_MAX:
+                        return self._send(
+                            429, {"error": f"{queued[0]} async searches are already waiting"}
+                        )
+                    queued[0] += 1
             parameters = {"q": query, "pages": pages, "hl": hl, "gl": gl, "links": links}
             search = archive.new({k: v for k, v in parameters.items() if v is not None})
             job = start_job(query, pages, hl, gl, links)
-            if params.get("async", "").lower() in ("1", "true"):
-                worker.submit(job).add_done_callback(lambda done: _landed(search, done, worker))
+            if asynchronous:
+                worker.submit(job).add_done_callback(ran(search))
                 return self._send(200, search.body())
+            future = worker.submit(job)
             try:
-                pending = worker.call(job)
+                pending = future.result(timeout=REQUEST_TIMEOUT_S)
+            except FutureTimeout:
+                if future.cancel():  # still queued: it never runs
+                    search.fail("cancelled: no answer in time")
+                else:  # running: its answer still reaches /searches/<id>.json
+                    future.add_done_callback(lambda done: _landed(search, done, worker))
+                message = f"TimeoutError: no answer within {REQUEST_TIMEOUT_S} s"
+                return self._send(500, {"error": message})
             except ExitsRefused as exc:
                 search.fail(str(exc))
                 return self._send(503, {"error": str(exc)})

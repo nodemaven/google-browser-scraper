@@ -1711,6 +1711,9 @@ def test_links_asks_the_first_n_organic_results_only(links):
     positions = [r["position"] for r in records[0]["organic_results"]]
     assert positions[:2] == [1, 2]
     assert _GatedResolver.asked == ([] if links == 0 else [positions[:links]])
+    # The third result is the page's one unresolved link: asked only without a limit.
+    third = records[0]["organic_results"][2]["link"]
+    assert third == ("https://resolved.example/" if links is None else None)
     if links == 0:
         assert "links" not in records[0]["search_metadata"]["timings"]
 
@@ -1739,4 +1742,26 @@ def test_a_negative_links_is_refused_before_a_query():
             s.start_search("a", links=-1)
         assert not FakeSession.opened
     finally:
+        s.close()
+
+
+def test_start_search_reads_no_more_pages_while_max_held_pages_wait_for_links():
+    import threading
+
+    from google_browser_scraper.scraper import MAX_HELD
+
+    s = _gated([[SERVED] * (MAX_HELD + 1)])
+    try:
+        for n in range(MAX_HELD):
+            s.start_search(f"q{n}")
+        last = []
+        reader = threading.Thread(target=lambda: last.append(s.start_search("last")))
+        reader.start()
+        reader.join(0.3)
+        assert reader.is_alive() and not last  # held back by the pages waiting for links
+        _GatedResolver.gate.set()
+        reader.join(5)
+        assert last and last[0].records[0]["search_parameters"]["q"] == "last"
+    finally:
+        _GatedResolver.gate.set()
         s.close()

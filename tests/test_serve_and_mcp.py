@@ -678,3 +678,47 @@ def test_the_archive_keeps_the_newest_searches():
     first, second, third = (archive.new({"q": q}) for q in "abc")
     assert archive.get(first.id) is None
     assert archive.get(second.id) is second and archive.get(third.id) is third
+
+
+def _busy(worker):
+    """Hold the worker on a job until the returned event is set."""
+    busy, release = threading.Event(), threading.Event()
+
+    def hold(scraper):
+        busy.set()
+        assert release.wait(10)
+
+    worker.submit(hold)
+    assert busy.wait(5)
+    return release
+
+
+def test_a_search_that_times_out_in_the_queue_never_runs(api, worker, monkeypatch):
+    from google_browser_scraper import server
+
+    monkeypatch.setattr(server, "REQUEST_TIMEOUT_S", 0.3)
+    release = _busy(worker)
+    try:
+        status, body = get(api() + "/search.json?q=late")
+    finally:
+        release.set()
+    worker.call(lambda s: None)
+    assert status == 500 and "no answer within" in body["error"]
+    assert worker.fake.calls == []  # cancelled before the worker took it
+
+
+def test_async_searches_waiting_at_once_are_bounded(api, worker, monkeypatch):
+    from google_browser_scraper import server
+
+    monkeypatch.setattr(server, "ASYNC_QUEUED_MAX", 1)
+    base = api()
+    release = _busy(worker)
+    try:
+        first = get(base + "/search.json?q=a&async=true")
+        refused = get(base + "/search.json?q=b&async=true")
+    finally:
+        release.set()
+    assert first[0] == 200 and refused[0] == 429
+    kept = finished(base + first[1]["search_metadata"]["json_endpoint"])
+    assert kept["search_metadata"]["status"] == "Success"
+    assert get(base + "/search.json?q=c&async=true")[0] == 200  # the slot is free again

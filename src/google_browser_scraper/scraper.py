@@ -35,7 +35,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1049,6 +1049,12 @@ class Scraper:
         self.settle()
         # Jobs a caller of an earlier start_search waited for, or did not.
         self._link_jobs = {k: job for k, job in self._link_jobs.items() if not job.done()}
+        # As `run` holds at most MAX_HELD records: no more pages are read while
+        # that many are still waiting for their links.
+        unfinished = list(self._link_jobs.values())
+        while len(unfinished) >= MAX_HELD:
+            wait_futures(unfinished, return_when=FIRST_COMPLETED)
+            unfinished = [job for job in unfinished if not job.done()]
         self._locale = {k: v for k, v in (("hl", hl), ("gl", gl)) if v}
         self._link_limit = links
         try:

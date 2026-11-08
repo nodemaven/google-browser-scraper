@@ -257,7 +257,7 @@ curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 - Results pages are read one at a time on one held proxy IP; a page's links resolve in the background, so the next request starts while the last one waits for its links
 - `links=N` resolves the links of the first N organic results only (`0`: none)
 - `links_wait=S` answers after S seconds with the links resolved by then; links still being resolved are `null` and counted in `search_metadata.links_pending`
-- `async=true` answers at once with `search_metadata.id`; `GET /searches/<id>.json` answers `"status": "Processing"` until the search and its links are done, then the record. The newest 500 searches are kept there, each for up to an hour
+- `async=true` answers at once with `search_metadata.id`; `GET /searches/<id>.json` answers `"status": "Processing"` until the search and its links are done, then the record. The newest 500 searches are kept there, each for up to an hour; up to 50 async searches wait for the browser at once, more are answered 429
 - Set `GBS_API_KEY` to require a key; without one the server only listens on localhost
 
 ## Use it from an AI agent (MCP)

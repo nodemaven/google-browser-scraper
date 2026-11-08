@@ -241,7 +241,8 @@ class LinkResolver:
         """Resolve every result that has a /goto redirect and no link yet.
 
         Up to PARALLEL requests run at once. A refusal disables the resolver,
-        so the requests still queued behind it are not sent.
+        so the requests still queued behind it are not sent. Each link is
+        written into its result as soon as its request is answered.
         """
         todo = [
             r
@@ -250,11 +251,14 @@ class LinkResolver:
         ]
         if not todo:
             return
-        with ThreadPoolExecutor(max_workers=min(PARALLEL, len(todo))) as pool:
-            links = list(pool.map(lambda r: self.resolve(r["redirect_link"]), todo))
-        with self._lock:
-            for result, link in zip(todo, links, strict=True):
+
+        def one(result: dict[str, Any]) -> None:
+            link = self.resolve(result["redirect_link"])
+            with self._lock:
                 result["link"] = link
+
+        with ThreadPoolExecutor(max_workers=min(PARALLEL, len(todo))) as pool:
+            list(pool.map(one, todo))
 
     def fill_from_pings(
         self,
