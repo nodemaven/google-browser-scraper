@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gserp"
 version = "0.2.0"
-description = "Self-hosted Google SERP API: Google Search results as JSON from a real Chrome browser through your own residential proxy. HTTP API, CLI and MCP server."
+description = "GSERP: self-hosted SERP API. Search results as JSON from a real Chrome browser through your own residential proxy. HTTP API, CLI and MCP server."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
