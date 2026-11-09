@@ -12,6 +12,11 @@ A page that came over HTTP is resolved on its own exit instead: each result's
 anchor carries a ping URL, which Google answers there with a small page naming
 the destination. Its /goto answers with a destination only for the few results
 it prefetches, and asked from a fresh exit it is refused.
+
+Google answers only a few of a page's links at once, through the ping URL or
+/goto alike; the rest get a "Verifying your request" page that reloads the same
+/goto after a delay of a few seconds. Asked again once that delay has passed,
+the /goto redirects to the result, as it does for a browser left on the page.
 """
 
 from __future__ import annotations
@@ -40,10 +45,24 @@ TIMEOUT_S = 30
 PARALLEL = 4
 #: Seconds one page's ping lookups may take; the rest go to the /goto resolver.
 PING_BUDGET_S = 30.0
+#: Google answers some result links with a "Verifying your request" page that
+#: refreshes to the same /goto after a delay, and that /goto then redirects to
+#: the result. Seconds a page may spend asking those links again.
+HELD_BUDGET_S = 45.0
+#: The longest refresh delay worth waiting out; a link held longer stays empty.
+HELD_WAIT_MAX_S = 30
+#: Times a held link is asked again before it is left empty.
+HELD_ROUNDS = 2
+#: Seconds added to the refresh delay before asking again.
+HELD_MARGIN_S = 0.5
 #: Google's answer to a ping URL names the destination in a refresh tag and in
 #: the script that navigates to it.
 _REFRESH = re.compile(r'<meta[^>]*content="0;url=([^"]+)"')
 _SCRIPT = re.compile(r"redirectUrl='([^']+)'")
+#: The "Verifying your request" page's refresh: a delay and the /goto it reloads.
+_HELD = re.compile(r'<meta[^>]*content="(\d+);url=(/goto\?[^"]+)"')
+#: Waits out a held link's delay; replaced in tests.
+_sleep = time.sleep
 #: Google's own hosts: google.com, google.de, google.co.uk, google.com.br,
 #: google.cat and their subdomains.
 _GOOGLE_HOST = re.compile(r"(?:.+\.)?google\.(?:com|cat|co\.[a-z]{2}|com\.[a-z]{2}|[a-z]{2})")
@@ -95,6 +114,14 @@ def ping_destination(body: str) -> str | None:
     return None
 
 
+def held_refresh(body: str) -> tuple[int, str] | None:
+    """The delay in seconds and the /goto path of Google's "Verifying your
+    request" page, or None when `body` is not that page."""
+    if "/goto?" not in body or not (match := _HELD.search(body)):
+        return None
+    return int(match.group(1)), html.unescape(match.group(2))
+
+
 def _refused(location: str) -> bool:
     host = urlsplit(location).netloc.lower()
     return "/sorry" in location or host.startswith(("sorry.", "consent."))
@@ -136,6 +163,9 @@ class LinkResolver:
     ) -> None:
         self._relay = None
         self._lock = threading.Lock()
+        #: Requests in flight on the resolver's own exit, across every page whose
+        #: links resolve at once: PARALLEL in all, not per page.
+        self._slots = threading.BoundedSemaphore(PARALLEL)
         self.resolved = 0
         self.failed = 0
         proxy_url = None
@@ -174,12 +204,16 @@ class LinkResolver:
             headers={"User-Agent": UA, "Accept": "text/html", "Accept-Language": "en-US,en;q=0.9"},
         )
         try:
-            response = self._opener.open(request, timeout=self._timeout)
-            location = response.headers.get("Location")
-            response.read()
-        except urllib.error.HTTPError as err:
-            location = err.headers.get("Location") if 300 <= err.code < 400 else None
-            err.read()
+            with self._slots:
+                if not self.enabled:  # refused while this request waited for a slot
+                    return None
+                try:
+                    response = self._opener.open(request, timeout=self._timeout)
+                    location = response.headers.get("Location")
+                    response.read()
+                except urllib.error.HTTPError as err:
+                    location = err.headers.get("Location") if 300 <= err.code < 400 else None
+                    err.read()
         except Exception:
             with self._lock:
                 self.failed += 1
@@ -228,11 +262,14 @@ class LinkResolver:
         None on an error. Each result is asked
         through its anchor's ping URL. A refusal or an error ends asking for
         this page, as does `PING_BUDGET_S`; the resolver itself stays on, since
-        another exit is another answer. A result left without a link is counted
+        another exit is another answer. A result Google holds on its
+        "Verifying your request" page is asked again once that page's own delay
+        has passed (`_follow_held`). A result left without a link is counted
         by `fill`, which tries it next, or here when `fill` will not.
         """
         pings = ping_paths(page)
         deadline = time.monotonic() + PING_BUDGET_S
+        held: list[tuple[float, dict[str, Any], str, int]] = []
         for result in results:
             redirect = result.get("redirect_link") or ""
             if result.get("link") is not None or "/goto?" not in redirect:
@@ -244,7 +281,7 @@ class LinkResolver:
             # above the budget in floating point.
             left = min(PING_BUDGET_S, deadline - time.monotonic())
             if left <= 0:
-                return
+                break  # the links already held still get their turn
             answer = get(path, left)
             if answer is None:
                 return
@@ -256,12 +293,54 @@ class LinkResolver:
                 link = _destination(location)
             elif status == 200:
                 link = ping_destination(body)
-            with self._lock:
-                if link:
-                    self.resolved += 1
-                    result["link"] = link
-                elif not self.enabled:
-                    self.failed += 1
+                hold = None if link else held_refresh(body)
+                if hold is not None and hold[0] <= HELD_WAIT_MAX_S:
+                    held.append((time.monotonic() + hold[0], result, hold[1], 1))
+                    continue
+            self._count(result, link)
+        self._follow_held(held, get)
+
+    def _follow_held(
+        self,
+        held: list[tuple[float, dict[str, Any], str, int]],
+        get: Callable[[str, float], tuple[int, str, str] | None],
+    ) -> None:
+        """Ask each held link's /goto again once its refresh delay has passed,
+        as a browser left on the page would; a link held again gets up to
+        `HELD_ROUNDS` in all. A refusal or an error ends it for this page, as
+        does `HELD_BUDGET_S`."""
+        deadline = time.monotonic() + HELD_BUDGET_S
+        while held:
+            held.sort(key=lambda item: item[0])
+            due, result, path, round_ = held.pop(0)
+            ask_at = due + HELD_MARGIN_S
+            if ask_at >= deadline:
+                for _, rest, _, _ in [(due, result, path, round_), *held]:
+                    self._count(rest, None)
+                return
+            _sleep(max(0.0, ask_at - time.monotonic()))
+            answer = get(path, min(HELD_BUDGET_S, deadline - time.monotonic()))
+            if answer is None or _refused(answer[1]):
+                return
+            status, location, body = answer
+            link = None
+            if 300 <= status < 400:
+                link = _destination(location)
+            elif status == 200:
+                link = ping_destination(body)
+                hold = None if link else held_refresh(body)
+                if hold is not None and hold[0] <= HELD_WAIT_MAX_S and round_ < HELD_ROUNDS:
+                    held.append((time.monotonic() + hold[0], result, hold[1], round_ + 1))
+                    continue
+            self._count(result, link)
+
+    def _count(self, result: dict[str, Any], link: str | None) -> None:
+        with self._lock:
+            if link:
+                self.resolved += 1
+                result["link"] = link
+            elif not self.enabled:
+                self.failed += 1
 
     def close(self) -> None:
         if self._relay is not None:

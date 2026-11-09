@@ -6,7 +6,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from google_browser_scraper.links import PING_BUDGET_S, LinkResolver, ping_destination, ping_paths
+from google_browser_scraper import links
+from google_browser_scraper.links import (
+    PING_BUDGET_S,
+    LinkResolver,
+    held_refresh,
+    ping_destination,
+    ping_paths,
+)
 from google_browser_scraper.scraper import _fill_links
 
 
@@ -154,10 +161,10 @@ def test_a_ping_answer_names_the_destination():
     assert ping_destination("<html>Loading...</html>") is None
 
 
-def interstitial(token: str) -> str:
+def interstitial(token: str, delay: int = 3) -> str:
     """Google's "Verifying your request" page, which names the same /goto again."""
     return (
-        f'<html><head><meta content="3;url=/goto?url={token}" http-equiv="refresh"></head>'
+        f'<html><head><meta content="{delay};url=/goto?url={token}" http-equiv="refresh"></head>'
         "<body><div>Verifying your request</div>"
         '<div disabled="" role="button">Continue</div>'
         f"<script>(function(){{var delayMillis=926;var redirectUrl='/goto?url\\x3d{token}';"
@@ -185,16 +192,20 @@ def test_googles_own_redirects_are_not_destinations():
         assert ping_destination(ping_answer(kept)) == kept
 
 
-def test_an_interstitial_or_a_redirect_back_to_google_leaves_the_link_empty():
-    answers = iter(
-        [(200, "", interstitial("AAA")), (302, "https://www.google.com/goto?url=BBB", "")]
-    )
+def test_an_interstitial_or_a_redirect_back_to_google_leaves_the_link_empty(monkeypatch):
+    monkeypatch.setattr(links, "_sleep", lambda seconds: None)
+    answers = {
+        "/url?sa=t&source=web&url=AAA&ved=1": (200, "", interstitial("AAA")),
+        "/url?sa=t&source=web&url=BBB&ved=2": (302, "https://www.google.com/goto?url=BBB", ""),
+        # The held link asked again only names Google's own redirect once more.
+        "/goto?url=AAA": (302, "https://www.google.com/goto?url=AAA", ""),
+    }
     resolver = LinkResolver(None, relay_factory=None)
     results = [
         {"link": None, "redirect_link": f"https://www.google.com/goto?url={t}"}
         for t in ("AAA", "BBB")
     ]
-    resolver.fill_from_pings(results, PAGE, lambda path, timeout: next(answers))
+    resolver.fill_from_pings(results, PAGE, lambda path, timeout: answers[path])
     # Left for the /goto resolver rather than counted as resolved.
     assert [r["link"] for r in results] == [None, None]
     assert resolver.resolved == 0 and resolver.enabled
@@ -344,3 +355,155 @@ def test_the_first_ping_never_gets_more_than_the_budget(monkeypatch):
     results = [{"link": None, "redirect_link": "https://www.google.com/goto?url=AAA"}]
     LinkResolver(None, relay_factory=None).fill_from_pings(results, PAGE, get)
     assert timeouts == [PING_BUDGET_S]
+
+
+PING_A, PING_B = "/url?sa=t&source=web&url=AAA&ved=1", "/url?sa=t&source=web&url=BBB&ved=2"
+
+
+def held_page_resolver(monkeypatch, answers):
+    """A resolver over PAGE whose requests are answered from `answers` (a path to
+    a list of answers, taken in turn); the waits are recorded, not slept."""
+    asked, slept = [], []
+    monkeypatch.setattr(links, "_sleep", slept.append)
+
+    def get(path, timeout):
+        asked.append(path)
+        return answers[path].pop(0)
+
+    results = [
+        {"link": None, "redirect_link": f"https://www.google.com/goto?url={t}"}
+        for t in ("AAA", "BBB")
+    ]
+    resolver = LinkResolver(None, relay_factory=None)
+    resolver.fill_from_pings(results, PAGE, get)
+    return results, asked, slept, resolver
+
+
+def test_the_held_page_names_its_delay_and_the_goto_it_reloads():
+    assert held_refresh(interstitial("AAA", 7)) == (7, "/goto?url=AAA")
+    assert held_refresh(ping_answer("https://e.com/")) is None
+    assert held_refresh("<html>Loading...</html>") is None
+
+
+def test_a_held_link_is_asked_again_once_its_delay_has_passed(monkeypatch):
+    results, asked, slept, resolver = held_page_resolver(
+        monkeypatch,
+        {
+            PING_A: [(200, "", ping_answer("https://aaa.example/"))],
+            PING_B: [(200, "", interstitial("BBB", 3))],
+            "/goto?url=BBB": [(302, "https://bbb.example/page", "")],
+        },
+    )
+    assert [r["link"] for r in results] == ["https://aaa.example/", "https://bbb.example/page"]
+    assert asked == [PING_A, PING_B, "/goto?url=BBB"]
+    assert len(slept) == 1 and 3.0 < slept[0] <= 3.5
+    assert resolver.resolved == 2
+
+
+def test_a_link_held_again_gets_one_more_round_and_then_is_left(monkeypatch):
+    results, asked, _, _ = held_page_resolver(
+        monkeypatch,
+        {
+            PING_A: [(200, "", interstitial("AAA", 3))],
+            PING_B: [(200, "", interstitial("BBB", 3))],
+            "/goto?url=AAA": [(200, "", interstitial("AAA", 5)), (302, "https://aaa.example/", "")],
+            "/goto?url=BBB": [(200, "", interstitial("BBB", 5)), (200, "", interstitial("BBB", 8))],
+        },
+    )
+    assert [r["link"] for r in results] == ["https://aaa.example/", None]
+    assert asked.count("/goto?url=BBB") == 2
+
+
+def test_a_hold_longer_than_worth_waiting_is_not_waited(monkeypatch):
+    results, asked, slept, _ = held_page_resolver(
+        monkeypatch,
+        {
+            PING_A: [(200, "", interstitial("AAA", links.HELD_WAIT_MAX_S + 1))],
+            PING_B: [(200, "", ping_answer("https://bbb.example/"))],
+        },
+    )
+    assert [r["link"] for r in results] == [None, "https://bbb.example/"]
+    assert asked == [PING_A, PING_B] and slept == []
+
+
+def test_a_refusal_while_following_held_links_ends_it_for_the_page(monkeypatch):
+    results, asked, _, resolver = held_page_resolver(
+        monkeypatch,
+        {
+            PING_A: [(200, "", interstitial("AAA", 3))],
+            PING_B: [(200, "", interstitial("BBB", 4))],
+            "/goto?url=AAA": [(302, "https://www.google.com/sorry/index?continue=x", "")],
+        },
+    )
+    assert [r["link"] for r in results] == [None, None]
+    assert "/goto?url=BBB" not in asked and resolver.enabled
+
+
+def test_held_links_past_the_budget_are_left(monkeypatch):
+    monkeypatch.setattr(links, "HELD_BUDGET_S", 2.0)
+    results, asked, slept, _ = held_page_resolver(
+        monkeypatch,
+        {
+            PING_A: [(200, "", interstitial("AAA", 3))],
+            PING_B: [(200, "", interstitial("BBB", 3))],
+        },
+    )
+    assert [r["link"] for r in results] == [None, None]
+    assert asked == [PING_A, PING_B] and slept == []
+
+
+def test_links_held_before_the_ping_budget_ran_out_are_still_followed(monkeypatch):
+    clock = iter([0.0, 0.0, 10.0, 31.0] + [31.0] * 20)
+    monkeypatch.setattr(links.time, "monotonic", lambda: next(clock))
+    results, asked, _, _ = held_page_resolver(
+        monkeypatch,
+        {
+            PING_A: [(200, "", interstitial("AAA", 3))],
+            "/goto?url=AAA": [(302, "https://aaa.example/", "")],
+        },
+    )
+    # BBB's ping is past the page's ping budget; AAA, held before it, is still asked again.
+    assert [r["link"] for r in results] == ["https://aaa.example/", None]
+    assert asked == [PING_A, "/goto?url=AAA"]
+
+
+def test_the_resolvers_own_requests_stay_within_parallel_across_pages(monkeypatch):
+    import threading as _threading
+
+    in_flight, peak, lock = [0], [0], _threading.Lock()
+    release = _threading.Event()
+
+    class Opener:
+        def open(self, request, timeout):
+            with lock:
+                in_flight[0] += 1
+                peak[0] = max(peak[0], in_flight[0])
+            release.wait(2)
+            with lock:
+                in_flight[0] -= 1
+
+            class Response:
+                headers = {"Location": "https://dest.example/"}
+
+                def read(self):
+                    return b""
+
+            return Response()
+
+    resolver = LinkResolver(None, relay_factory=None)
+    resolver._opener = Opener()
+    pages = [
+        [
+            {"link": None, "redirect_link": f"https://www.google.com/goto?url=P{p}R{r}"}
+            for r in range(4)
+        ]
+        for p in range(3)
+    ]
+    threads = [_threading.Thread(target=resolver.fill, args=(page,)) for page in pages]
+    for t in threads:
+        t.start()
+    _threading.Timer(0.5, release.set).start()
+    for t in threads:
+        t.join(5)
+    assert peak[0] <= links.PARALLEL
+    assert all(r["link"] == "https://dest.example/" for page in pages for r in page)
