@@ -31,7 +31,7 @@ from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 from .hybrid import Headers
-from .scraper import Breaker, ExitsRefused, Scraper, Stats, Templates
+from .scraper import Breaker, Donors, ExitsRefused, Scraper, Stats, Templates
 
 MAX_WORKERS = 16
 _DONE = object()
@@ -97,11 +97,19 @@ class Pool:
                     "clone_max_age, clone_refusals, clone_cache and breaker must be the "
                     "same for every worker"
                 )
+            if (s.donors, s.donors_out) != (first.donors, first.donors_out):
+                raise ValueError(
+                    "workers share one store of cookie sets, so donors and donors_out "
+                    "must be the same for every worker"
+                )
         templates = Templates(first.clones, first.clone_max_age, first.clone_refusals)
         breaker = Breaker(first.breaker)
         headers = Headers()
+        # One store of cookie sets: a refusal or a renewal on any worker moves
+        # the set every worker starts its next exit from.
+        donors = Donors(first.donors, first.donors_out)
         for scraper in self._scrapers:
-            scraper.share(breaker, templates, headers)
+            scraper.share(breaker, templates, headers, donors)
         threads = [
             threading.Thread(
                 target=self._work,

@@ -448,6 +448,38 @@ def test_a_page_the_browser_rendered_is_asked_with_the_browsers_cookies():
     assert s.link_client()._cookie == "SID=browser"
 
 
+def test_with_pages_over_http_off_every_page_is_the_browsers_but_links_are_still_resolved():
+    client = Client([Response(SERVED.html)])
+    headers = Headers()
+    headers.request = REQUEST
+    s = HybridSession(Inner(), "http://127.0.0.1:1", headers, pages_over_http=False)
+    s._http = client
+    s.__enter__()
+    s._opened_served = True
+    s.search("best running shoes", direct=True)
+    s.search("cold brew", direct=True, hl="de")
+    assert client.sent == [] and s.http_pages == 0
+    links = s.link_client()
+    assert links is not None and links._proxy_url == "http://127.0.0.1:1"
+    asked = Client([Response("<html></html>", status=302)])
+    links._http = asked
+    assert links.get("/url?sa=t&url=AAA")[0] == 302
+    url, headers = asked.sent[0]
+    assert url == "https://www.google.com/url?sa=t&url=AAA"
+    assert dict(headers)["cookie"] == "SID=browser"
+
+
+def test_cookie_records_fold_in_deletions_that_emptied_the_header():
+    inner = Inner()
+    s, _ = session(Client([]), inner=inner)
+    s._cookie, s._deleted = "", {"NID"}
+    calls = []
+    inner.set_google_cookies = lambda header, deleted=(): calls.append((header, deleted))
+    inner.google_cookie_records = lambda: ()
+    s.google_cookie_records()
+    assert calls == [("", ("NID",))] and s._deleted == set()
+
+
 def test_no_link_client_before_chromiums_headers_are_read():
     s, _ = session(Client([]), headers=Headers())
     s.search("q", direct=True)

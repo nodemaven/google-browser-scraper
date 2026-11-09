@@ -55,8 +55,13 @@ CONSENT_WALL = (
 )
 
 
+#: The Cookie header of every request, in order.
+COOKIES_SEEN: list[str] = []
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - the stdlib's name
+        COOKIES_SEEN.append(self.headers.get("Cookie") or "")
         parts = urlsplit(self.path)
         if parts.path == "/search":
             query = parse_qs(parts.query).get("q", [""])[0]
