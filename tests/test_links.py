@@ -507,3 +507,33 @@ def test_the_resolvers_own_requests_stay_within_parallel_across_pages(monkeypatc
         t.join(5)
     assert peak[0] <= links.PARALLEL
     assert all(r["link"] == "https://dest.example/" for page in pages for r in page)
+
+
+def test_fill_writes_each_link_as_soon_as_its_request_is_answered():
+    slow = threading.Event()
+    resolver = LinkResolver(None, relay_factory=None)
+
+    def resolve(url):
+        if "BBB" in url:
+            assert slow.wait(5)
+        return "https://" + url.rsplit("=", 1)[1].lower() + ".example/"
+
+    resolver.resolve = resolve
+    results = [
+        {"link": None, "redirect_link": f"https://www.google.com/goto?url={t}"}
+        for t in ("AAA", "BBB")
+    ]
+    filling = threading.Thread(target=resolver.fill, args=(results,))
+    filling.start()
+    try:
+        for _ in range(500):
+            with resolver.lock:
+                if results[0]["link"]:
+                    break
+            time.sleep(0.01)
+        # AAA is in while BBB's request is still out.
+        assert results[0]["link"] == "https://aaa.example/" and results[1]["link"] is None
+    finally:
+        slow.set()
+        filling.join(5)
+    assert results[1]["link"] == "https://bbb.example/"

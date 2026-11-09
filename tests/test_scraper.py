@@ -1626,3 +1626,173 @@ def test_without_donors_an_exit_whose_http_side_gave_up_is_kept():
 
     list(scraper([[SERVED, SERVED]], cls=OffSession).run(["a", "b"]))
     assert [s.searched for s in FakeSession.opened] == [["a", "b"]]
+
+
+class _GatedResolver:
+    """Fills every /goto link once `gate` is set; records the positions of the
+    results it was handed."""
+
+    gate = None
+    asked: list[list[int]] = []
+    resolved = failed = bytes = 0
+
+    def __init__(self, upstream, relay_factory=None):
+        import threading
+
+        self.lock = threading.Lock()
+
+    def fill(self, results):
+        type(self).asked.append([r["position"] for r in results])
+        assert self.gate.wait(5)
+        with self.lock:
+            for r in results:
+                if r["link"] is None and "/goto?" in (r.get("redirect_link") or ""):
+                    r["link"] = "https://resolved.example/"
+
+    def close(self):
+        pass
+
+    def hosts(self):
+        return {}
+
+
+def _gated(scripts, settings=None):
+    import threading
+
+    _GatedResolver.gate, _GatedResolver.asked = threading.Event(), []
+    FakeSession.opened, FakeRelay.by_address = [], {}
+    scripts = list(scripts)
+    return Scraper(
+        ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
+        settings or Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+        session_factory=lambda proxy, **o: FakeSession(proxy, script=scripts.pop(0), **o),
+        relay_factory=FakeRelay,
+        resolver_factory=_GatedResolver,
+        sleep=lambda x: None,
+    )
+
+
+def _held(record):
+    return sum(
+        1
+        for r in record["organic_results"]
+        if r["link"] is None and "/goto?" in (r.get("redirect_link") or "")
+    )
+
+
+def test_start_search_returns_once_the_page_is_read_and_the_links_follow():
+    s = _gated([[SERVED, SERVED]])
+    try:
+        pending = s.start_search("a")
+        assert not pending.done() and not pending.wait(0.05)
+        early = pending.snapshot()
+        assert early is not pending.records  # a copy, safe while links are written
+        assert early[0]["search_metadata"]["links_pending"] == _held(early[0]) > 0
+        # The browser is free: the next query is read while "a" still waits.
+        assert s.start_search("b").records[0]["search_parameters"]["q"] == "b"
+        _GatedResolver.gate.set()
+        assert pending.wait(5)
+        final = pending.snapshot()
+        assert final is pending.records and "links_pending" not in final[0]["search_metadata"]
+        assert final[0]["organic_results"][2]["link"] == "https://resolved.example/"
+    finally:
+        _GatedResolver.gate.set()
+        s.close()
+
+
+@pytest.mark.parametrize("links", [None, 2, 0])
+def test_links_asks_the_first_n_organic_results_only(links):
+    s = _gated([[SERVED]])
+    _GatedResolver.gate.set()
+    try:
+        records = s.search("a", links=links)
+    finally:
+        s.close()
+    positions = [r["position"] for r in records[0]["organic_results"]]
+    assert positions[:2] == [1, 2]
+    assert _GatedResolver.asked == ([] if links == 0 else [positions[:links]])
+    # The third result is the page's one unresolved link: asked only without a limit.
+    third = records[0]["organic_results"][2]["link"]
+    assert third == ("https://resolved.example/" if links is None else None)
+    if links == 0:
+        assert "links" not in records[0]["search_metadata"]["timings"]
+
+
+def test_links_pending_counts_only_the_results_whose_links_were_asked():
+    s = _gated([[SERVED]])
+    try:
+        pending = s.start_search("a", links=2)
+        early = pending.snapshot()[0]
+        # The third result is the one waiting for a link, and it was not asked.
+        assert early["search_metadata"]["links_pending"] == _held_first(early, 2) == 0
+        assert _held(early) == 1
+    finally:
+        _GatedResolver.gate.set()
+        s.close()
+
+
+def _held_first(record, n):
+    return _held({"organic_results": record["organic_results"][:n]})
+
+
+def test_a_negative_links_is_refused_before_a_query():
+    s = _gated([[SERVED]])
+    try:
+        with pytest.raises(ValueError, match="links"):
+            s.start_search("a", links=-1)
+        assert not FakeSession.opened
+    finally:
+        s.close()
+
+
+def test_start_search_reads_no_more_pages_while_max_held_pages_wait_for_links():
+    import threading
+
+    from google_browser_scraper.scraper import MAX_HELD
+
+    s = _gated([[SERVED] * (MAX_HELD + 1)])
+    try:
+        for n in range(MAX_HELD):
+            s.start_search(f"q{n}")
+        last = []
+        reader = threading.Thread(target=lambda: last.append(s.start_search("last")))
+        reader.start()
+        reader.join(0.3)
+        assert reader.is_alive() and not last  # held back by the pages waiting for links
+        _GatedResolver.gate.set()
+        reader.join(5)
+        assert last and last[0].records[0]["search_parameters"]["q"] == "last"
+    finally:
+        _GatedResolver.gate.set()
+        s.close()
+
+
+def test_the_hold_on_pages_waiting_for_links_applies_between_pages_of_one_query():
+    import threading
+    import time
+
+    from google_browser_scraper.scraper import MAX_HELD
+
+    assert MAX_HELD == 8  # the page counts below assume it
+    settings = Settings(pages=3, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    s = _gated([[SERVED] * 9], settings)
+    try:
+        s.start_search("q0")
+        s.start_search("q1")  # six pages waiting for links
+        session = FakeSession.opened[0]
+        reader = threading.Thread(target=lambda: s.start_search("q2"))
+        reader.start()
+        # q2's first two pages make eight waiting: wait for its second page...
+        for _ in range(500):
+            if session.pages_turned >= 5:
+                break
+            time.sleep(0.01)
+        # ...then its third must not follow while the links are held.
+        reader.join(0.3)
+        assert reader.is_alive() and session.pages_turned == 5
+        _GatedResolver.gate.set()
+        reader.join(5)
+        assert not reader.is_alive() and session.pages_turned == 6
+    finally:
+        _GatedResolver.gate.set()
+        s.close()
