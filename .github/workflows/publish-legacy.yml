@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The build needs no git credentials; keep the token out of .git/config.
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
