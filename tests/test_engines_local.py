@@ -143,6 +143,7 @@ def test_a_copied_profile_carries_the_served_session_to_a_new_browser(local_goog
         warmup="off",
         headless=True,
         clones=2,
+        renew_donors_every=0,
         max_queries_per_exit=2,
         gap_seconds=(0, 0),
         dwell_seconds=(0, 0),

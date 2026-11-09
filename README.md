@@ -40,9 +40,10 @@ residential proxy, and get clean JSON back. Use it as a CLI, a Python library,
 a local HTTP API, or an MCP server that gives AI agents live Google search.
 
 Plain HTTP is no longer a reliable way to scrape Google, and a fresh browser on a
-fresh proxy IP is refused quickly. So the scraper warms a sticky proxy session
-with ordinary browsing, lets the browser pass Google's checks, and then fetches
-results pages directly over HTTPS with the browser's own cookies. Captchas and
+fresh proxy IP is refused quickly. So the scraper warms its first sticky proxy
+session with ordinary browsing and starts later ones from the cookies Google
+already accepts, lets the browser pass Google's checks, and then fetches results
+pages directly over HTTPS with the browser's own cookies. Captchas and
 blocks are reported as such, never as "no results".
 
 ## Features
@@ -66,7 +67,7 @@ Pages of results for some other query are caught: the proxy IP serving them is d
 <td valign="top">
 
 🌐 **Real browser**<br>
-Real Chrome via Patchright, warmed up before every new identity, so Google's checks pass.
+Real Chrome via Patchright, warmed up once and then carrying the cookies Google already trusts to every new identity, so Google's checks pass.
 
 </td>
 <td valign="top">
@@ -132,8 +133,8 @@ google-browser-scraper search "best running shoes" \
   -o results.jsonl
 ```
 
-The first query takes a few minutes while a new proxy IP warms up; later queries on
-the same proxy IP take seconds. Every run ends with a summary of pages served and
+The first query takes a few minutes while the first proxy IP warms up; later
+queries take seconds, and new proxy IPs start from its cookies. Every run ends with a summary of pages served and
 traffic used.
 
 ### With NodeMaven
@@ -294,7 +295,9 @@ To build it yourself: `docker build -t google-browser-scraper .`
 ## How it works
 
 1. **New identity:** a sticky proxy session and a fresh browser profile.
-2. **Warm-up:** a few ordinary pages, staying on each for 20-45 seconds.
+2. **Warm-up:** the first proxy IP opens a few ordinary pages, staying on each
+   for 20-45 seconds. Later ones start from the Google cookies of a served proxy
+   IP and are warmed up only when no such set is accepted.
 3. **Search:** the first query on a proxy IP goes through the browser. Once Google
    serves it, the next pages come over HTTPS with the browser's cookies, until
    Google asks for its check again.
@@ -318,18 +321,19 @@ browser for every page.
 queries is dropped, and the query is asked again on a new one.
 
 **Holding proxy IPs.** A served proxy IP is kept for up to 300 queries. Every new one
-pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 50
+pays for a browser check, and for a warm-up when no cookie set is accepted, so a
+short cap mostly buys more of that traffic. Every 50
 results pages it renders, the browser is restarted on the same profile and proxy IP, which keeps
 its memory from growing over a long hold. A browser error on a search is retried
 once on the same proxy IP before it is dropped; a network error, running out of
 memory or a crashed browser drops it at once.
 
-**Copying cookies.** The command line copies the cookies of the first proxy IP
-Google serves and starts new proxy IPs from that copy, on new sticky sessions,
-instead of warming each one; all workers share the copy. Google's acceptance
-follows the cookies more than the address, so a copy usually starts out served
-and costs a few MB instead of a full warm-up. A copy waits 40-60 seconds after
-its browser starts before the first search.
+**Copying cookies.** With `--renew-cookies 0`, the command line copies the
+cookies of the first proxy IP Google serves and starts new proxy IPs from that
+copy, on new sticky sessions, instead of warming each one; all workers share
+the copy. Google's acceptance follows the cookies more than the address, so a
+copy usually starts out served and costs a few MB instead of a full warm-up. A
+copy waits 40-60 seconds after its browser starts before the first search.
 
 **Copying the cache.** Pages get cheaper as a proxy IP is held, because the
 browser cache fills with Google's shared scripts and images. Copies carry that
@@ -342,12 +346,14 @@ run copies cookies only (`--no-clone-cache` does that from the start).
 Google cookies of a browser Google already serves, so it skips the warm-up; the
 file can come from another machine. `--renew-cookies N` replaces that set with
 the cookies of a served proxy IP every N queries, so it stays fresh, and without
-`--cookies` it ends the warm-ups after the first renewal. `--cookies-out DIR`
-saves each renewed set for the next run, readable by its owner only. If every
-set is refused in turn, new proxy IPs are warmed up again, and with
-`--renew-cookies` the next renewal brings the sets back. A file is a JSON list
-of Playwright cookie records, or an object with that list under `"cookies"`,
-and must hold Google's `NID` cookie.
+`--cookies` it ends the warm-ups after the first renewal. It is on by default,
+every 25 queries, so a run warms up its first proxy IP and rarely another;
+`--renew-cookies 0` goes back to copies of the first served profile.
+`--cookies-out DIR` saves each renewed set for the next run, readable by its
+owner only. If every set is refused in turn, new proxy IPs are warmed up again,
+and with `--renew-cookies` the next renewal brings the sets back. A file is a
+JSON list of Playwright cookie records, or an object with that list under
+`"cookies"`, and must hold Google's `NID` cookie.
 
 **Result links.** Google wraps result links in encrypted `/goto` redirects.
 Each one is resolved with a small request on the proxy IP the page came from,
@@ -382,12 +388,12 @@ The defaults come from measurements in
 | `--restart-every N` | 50 | Results pages the browser rendered before it restarts on the same profile and proxy IP; `0` never |
 | `--no-hybrid` | | Fetch every results page in the browser instead of over HTTP between Google's checks |
 | `--hl`, `--gl` | `en`, unset | Language and country of the results |
-| `--clone N` | 10 | New proxy IPs started from copied cookies; `0` turns copying off |
+| `--clone N` | 10 | With `--renew-cookies 0`: new proxy IPs started from copied cookies; `0` turns copying off |
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |
 | `--no-clone-cache` | | Copies carry cookies only, not the browser cache |
 | `--cookies FILE` | | Start every new proxy IP from the Google cookies in FILE instead of a warm-up; repeat for more files, the next one taking over after two proxy IPs in a row are refused on their first query, and warm-ups again once every file has been refused that way. Turns `--clone` off |
-| `--renew-cookies N` | 0 | Every N served queries, a proxy IP's Google cookies become the set new proxy IPs start from; `0` is off. Turns `--clone` off |
+| `--renew-cookies N` | 25 | Every N served queries, a proxy IP's Google cookies become the set new proxy IPs start from; `0` turns it off and brings back `--clone` |
 | `--cookies-out DIR` | | Write each renewed cookie set to DIR, for the next run's `--cookies` |
 | `--warmup` | `L3` | Pages a fresh proxy IP opens before its first query: `L3`, `light` (without Google Trends: much less traffic, served on the first query less often), `L2`, `L1`, `off` |
 | `--spare N` | 0 | Proxy IPs warmed in the background so a retired one is replaced at once; each costs a warm-up |
