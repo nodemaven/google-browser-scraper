@@ -231,13 +231,19 @@ def _ai_overview(root) -> dict[str, Any]:
         # results' text.
         if block is None or block.xpath(".//a[.//h3]"):
             return {}
-        if len(_visible_text(block)) >= _AI_MIN_TEXT:
+        # Measured as returned, without the heading and the label, so neither
+        # makes an inner block look long enough while the answer goes on outside it.
+        if len(_overview_text(block)) >= _AI_MIN_TEXT:
             break
     else:
         return {}
-    text = _visible_text(block, skip_label=True)
-    text = text.removeprefix("AI Overview").strip()
+    text = _overview_text(block)
     return {"text": text} if len(text) >= _AI_MIN_TEXT else {}
+
+
+def _overview_text(block) -> str:
+    """The answer text of an AI Overview block, without its heading and label."""
+    return _visible_text(block, skip_label=True).removeprefix("AI Overview").strip()
 
 
 _RATING = re.compile(r"(\d+(?:[.,]\d+)?)")
@@ -399,15 +405,31 @@ _HIDDEN_PARTS = (
 )
 
 
+_REPLIED = "AI Mode replied:"
+#: The label's text, with non-breaking spaces read as spaces.
+_LABEL_TEXT = "normalize-space(translate(text(), '\u00a0', ' '))"
+_LABEL = (
+    f".//*[starts-with({_LABEL_TEXT}, 'AI Mode reply for')"
+    f" or starts-with({_LABEL_TEXT}, '{_REPLIED}')]"
+)
+
+
 def _visible_text(el, *, skip_label: bool = False) -> str:
     """Text of an element without scripts, styles and (optionally) the hidden
-    "AI Mode reply for ..." label Google puts before the answer."""
+    label Google puts before the answer ("AI Mode reply for ...", "AI Mode
+    replied:")."""
     el = copy.deepcopy(el)
     for node in el.xpath(".//script|.//style"):
         node.drop_tree()
     if skip_label:
-        for node in el.xpath(".//*[starts-with(normalize-space(text()), 'AI Mode reply for')]"):
-            node.drop_tree()
+        for node in el.xpath(_LABEL):
+            text = " ".join((node.text or "").replace("\xa0", " ").split())
+            rest = text.removeprefix(_REPLIED).strip() if text.startswith(_REPLIED) else ""
+            if rest or len(node):
+                # The answer shares the label's element: only the label goes.
+                node.text = rest or None
+            else:
+                node.drop_tree()
         # Panels the block opens on demand - sharing, feedback, a "copied"
         # notice - are dialogs, menus and status lines. Hidden parts are not
         # dropped: the answer behind "Show more" is hidden too.
