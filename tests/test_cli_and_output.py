@@ -4,11 +4,11 @@ import json
 import pages
 import pytest
 
-from google_browser_scraper import cli
-from google_browser_scraper.classify import classify
-from google_browser_scraper.doctor import FAIL, PASS, WARN, assess
-from google_browser_scraper.output import build_record, open_writer
-from google_browser_scraper.parse import parse_serp
+from gserp import cli
+from gserp.classify import classify
+from gserp.doctor import FAIL, PASS, WARN, assess
+from gserp.output import build_record, open_writer
+from gserp.parse import parse_serp
 
 
 def record():
@@ -78,6 +78,7 @@ def test_parse_command_refuses_to_parse_a_refusal(tmp_path, capsys):
     ],
 )
 def test_search_argument_errors(argv, capsys, monkeypatch):
+    monkeypatch.delenv("GSERP_PROXY", raising=False)
     monkeypatch.delenv("GBS_PROXY", raising=False)
     assert cli.main(argv) == 1
     assert capsys.readouterr().err.startswith("error:")
@@ -209,7 +210,7 @@ def test_cookie_sets_are_renewed_by_default_and_zero_brings_copies_back():
 def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
     import json
 
-    from google_browser_scraper.browser import load_cookies
+    from gserp.browser import load_cookies
 
     f = tmp_path / "donor.json"
     f.write_text(
@@ -253,7 +254,7 @@ def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
 def test_load_cookies_refuses_malformed_fields_before_a_browser_starts(tmp_path):
     import json
 
-    from google_browser_scraper.browser import load_cookies
+    from gserp.browser import load_cookies
 
     f = tmp_path / "donor.json"
     nid = {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"}
@@ -288,7 +289,7 @@ def test_load_cookies_refuses_malformed_fields_before_a_browser_starts(tmp_path)
 def test_load_cookies_drops_lookalike_domains_and_needs_a_live_nid(tmp_path):
     import json
 
-    from google_browser_scraper.browser import load_cookies
+    from gserp.browser import load_cookies
 
     f = tmp_path / "donor.json"
     nid = {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"}

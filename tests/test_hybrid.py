@@ -5,9 +5,9 @@ import json
 
 import pages
 
-from google_browser_scraper import hybrid, quality
-from google_browser_scraper.browser import Fetched
-from google_browser_scraper.hybrid import Headers, HybridSession, LinkClient
+from gserp import hybrid, quality
+from gserp.browser import Fetched
+from gserp.hybrid import Headers, HybridSession, LinkClient
 
 SEARCH = "https://www.google.com/search?q=x"
 SERVED = Fetched(SEARCH, 200, pages.results_page())

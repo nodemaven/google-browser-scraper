@@ -1,0 +1,64 @@
+# Publish the old name, `google-browser-scraper`, to PyPI from `legacy/`.
+#
+# The package holds no code: it depends on `gserp` at the same version and keeps
+# the old command and import working. It is released from the same published
+# GitHub release as `gserp` (see publish.yml), through its own Trusted Publisher
+# entry on PyPI, which names this file and the `pypi` environment.
+name: publish-legacy
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The build needs no git credentials; keep the token out of .git/config.
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade build twine
+      - run: python -m build legacy --outdir dist
+      - run: python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-legacy
+          path: dist/
+
+  # The package depends on gserp, which publish.yml uploads from the same release
+  # in a separate workflow. Wait until that version is on PyPI, so nobody can
+  # install the old name while its dependency is missing.
+  wait-for-gserp:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Wait for gserp ${{ github.event.release.tag_name }} on PyPI
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${TAG#v}"
+          until curl -sf -o /dev/null "https://pypi.org/pypi/gserp/${version}/json"; do
+            echo "gserp ${version} not on PyPI yet"
+            sleep 30
+          done
+
+  publish:
+    needs: wait-for-gserp
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-legacy
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

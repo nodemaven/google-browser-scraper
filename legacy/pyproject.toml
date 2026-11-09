@@ -1,0 +1,38 @@
+# The old distribution name, kept so that `pip install google-browser-scraper`,
+# the `google-browser-scraper` command and `import google_browser_scraper` go on
+# working. It holds no code of its own: it installs `gserp`, this version or newer.
+[build-system]
+# 77 for `license-files` in [project].
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "google-browser-scraper"
+version = "0.2.0"
+description = "Renamed to gserp. Installing this installs gserp and keeps the old command and import working."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "NodeMaven" }]
+classifiers = [
+    "Development Status :: 7 - Inactive",
+    "Programming Language :: Python :: 3",
+]
+dependencies = ["gserp>=0.2.0"]
+
+[project.optional-dependencies]
+nodemaven = ["gserp[nodemaven]>=0.2.0"]
+cloak = ["gserp[cloak]>=0.2.0"]
+all = ["gserp[all]>=0.2.0"]
+dev = ["gserp[dev]>=0.2.0"]
+
+[project.scripts]
+google-browser-scraper = "google_browser_scraper:main"
+
+[project.urls]
+Source = "https://github.com/nodemaven/gserp"
+"New package" = "https://pypi.org/project/gserp/"
+
+[tool.setuptools.packages.find]
+where = ["src"]

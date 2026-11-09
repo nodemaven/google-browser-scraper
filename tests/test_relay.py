@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from google_browser_scraper.relay import Relay
+from gserp.relay import Relay
 
 
 def _serve(handler):

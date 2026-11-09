@@ -1,10 +1,10 @@
-# google-browser-scraper: headful Chromium on a virtual display, serving the
+# gserp: headful Chromium on a virtual display, serving the
 # HTTP search API on port 8000 by default.
 #
-#   docker build -t google-browser-scraper .
-#   docker run --rm google-browser-scraper doctor
-#   docker run --rm -p 8000:8000 -e GBS_API_KEY=... -e GBS_PROXY='http://u-{session}:p@host:port' \
-#       google-browser-scraper serve --host 0.0.0.0
+#   docker build -t gserp .
+#   docker run --rm gserp doctor
+#   docker run --rm -p 8000:8000 -e GSERP_API_KEY=... -e GSERP_PROXY='http://u-{session}:p@host:port' \
+#       gserp serve --host 0.0.0.0
 #
 # Headful on purpose: headless builds announce HeadlessChrome. A real display is
 # replaced by Xvfb at 1920x1080x24, not Xvfb's small default, because the screen
@@ -19,8 +19,12 @@ FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    DISPLAY=:99 \
-    GBS_BROWSER_ARGS="--enable-unsafe-swiftshader"
+    DISPLAY=:99
+
+# WebGL through SwiftShader, as there is no GPU. Under the old name on
+# purpose: GSERP_BROWSER_ARGS is read first, so either name given to the
+# container overrides it, and `docker exec` sees it too.
+ENV GBS_BROWSER_ARGS="--enable-unsafe-swiftshader"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

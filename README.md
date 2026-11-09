@@ -1,19 +1,21 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/nodemaven/google-browser-scraper/main/assets/banner.png" alt="Google Browser Scraper">
+<img src="https://raw.githubusercontent.com/nodemaven/gserp/main/assets/banner.png" alt="gserp">
 
-<h1>google-browser-scraper</h1>
+<h1>gserp</h1>
 
 <p><b>Self-hosted SERP API alternative: Google search results from a real Chrome browser and your own residential proxy.</b></p>
 
-[![pypi](https://img.shields.io/pypi/v/google-browser-scraper?style=flat-square)](https://pypi.org/project/google-browser-scraper/)
-[![python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://pypi.org/project/google-browser-scraper/)
-[![tests](https://img.shields.io/github/actions/workflow/status/nodemaven/google-browser-scraper/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/nodemaven/google-browser-scraper/actions/workflows/ci.yml)
-[![license](https://img.shields.io/pypi/l/google-browser-scraper?style=flat-square)](https://opensource.org/licenses/MIT)
-[![docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/nodemaven/google-browser-scraper/pkgs/container/google-browser-scraper)
+<p>Formerly <code>google-browser-scraper</code>: that package now installs gserp, and the old command, import and <code>GBS_*</code> variables keep working.</p>
+
+[![pypi](https://img.shields.io/pypi/v/gserp?style=flat-square)](https://pypi.org/project/gserp/)
+[![python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://pypi.org/project/gserp/)
+[![tests](https://img.shields.io/github/actions/workflow/status/nodemaven/gserp/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/nodemaven/gserp/actions/workflows/ci.yml)
+[![license](https://img.shields.io/pypi/l/gserp?style=flat-square)](https://opensource.org/licenses/MIT)
+[![docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/nodemaven/gserp/pkgs/container/gserp)
 [![2 GB free with code GOOGLENM](https://img.shields.io/badge/%F0%9F%8E%81%202%20GB%20free-code%20GOOGLENM-1153FC?style=flat-square)](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=promo_badge)
 
-<a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="Google Browser Scraper on DevHunt" height="44"></a>
+<a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="gserp on DevHunt" height="44"></a>
 
 [Quickstart](#quickstart) · [Output](#what-you-get) · [Poisoned results](#poisoned-results-protection) · [HTTP API](#run-it-as-an-api) · [MCP](#use-it-from-an-ai-agent-mcp) · [Docker](#docker) · [How it works](#how-it-works) · [Options](#options)
 
@@ -22,7 +24,7 @@
 <br>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nodemaven/google-browser-scraper/main/assets/demo.gif" alt="A real Chrome window showing Google results next to the JSON the scraper produced for them" width="900">
+  <img src="https://raw.githubusercontent.com/nodemaven/gserp/main/assets/demo.gif" alt="A real Chrome window showing Google results next to the JSON the scraper produced for them" width="900">
 </p>
 
 <div align="center">
@@ -117,7 +119,7 @@ CLI, Python library, HTTP API, MCP server or Docker image. Traffic and cost per 
 ## Install
 
 ```bash
-pip install google-browser-scraper
+pip install gserp
 patchright install chromium
 ```
 
@@ -128,7 +130,7 @@ patchright install chromium
 > your provider expects a session id in the username.
 
 ```bash
-google-browser-scraper search "best running shoes" \
+gserp search "best running shoes" \
   --proxy "http://USER-session-{session}:PASS@gate.example.com:7000" \
   -o results.jsonl
 ```
@@ -142,9 +144,9 @@ traffic used.
 The session id is handled for you and the credentials come from the environment:
 
 ```bash
-pip install "google-browser-scraper[nodemaven]"
+pip install "gserp[nodemaven]"
 export NODEMAVEN_LOGIN=... NODEMAVEN_PASSWORD=...
-google-browser-scraper search -f queries.txt --nodemaven --country us -o results.jsonl
+gserp search -f queries.txt --nodemaven --country us -o results.jsonl
 ```
 
 > [!TIP]
@@ -162,7 +164,7 @@ keeps it). The account needs sub-users enabled. A fresh warm-up alone uses about
 
 ```bash
 export NODEMAVEN_API_KEY=...
-google-browser-scraper search -f queries.txt --nodemaven-demo --traffic-limit-mb 300 -o results.jsonl
+gserp search -f queries.txt --nodemaven-demo --traffic-limit-mb 300 -o results.jsonl
 ```
 
 </details>
@@ -173,7 +175,7 @@ google-browser-scraper search -f queries.txt --nodemaven-demo --traffic-limit-mb
 <br>
 
 ```bash
-google-browser-scraper search "best running shoes" --no-proxy
+gserp search "best running shoes" --no-proxy
 ```
 
 Google then sees one address for every query, so it starts answering with
@@ -185,7 +187,7 @@ captchas sooner than it would across a pool of proxy IPs. Those pages come back 
 ### From Python
 
 ```python
-from google_browser_scraper import ProxyTemplate, Scraper, Settings
+from gserp import ProxyTemplate, Scraper, Settings
 
 proxy = ProxyTemplate("http://USER-session-{session}:PASS@gate.example.com:7000")
 for page in Scraper(proxy, Settings(pages=2)).run(["best running shoes"]):
@@ -248,7 +250,7 @@ is asked again on a fresh one.
 ## Run it as an API
 
 ```bash
-google-browser-scraper serve --nodemaven --country us --prewarm
+gserp serve --nodemaven --country us --prewarm
 curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 ```
 
@@ -259,7 +261,7 @@ curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 - `links=N` resolves the links of the first N organic results only (`0`: none)
 - `links_wait=S` answers after S seconds with the links resolved by then; links still being resolved are `null` and counted in `search_metadata.links_pending`
 - `async=true` answers at once with `search_metadata.id`; `GET /searches/<id>.json` answers `"status": "Processing"` until the search and its links are done, then the record. The newest 500 searches are kept there, each for up to an hour; up to 50 async searches wait for the browser at once, more are answered 429
-- Set `GBS_API_KEY` to require a key; without one the server only listens on localhost
+- Set `GSERP_API_KEY` to require a key; without one the server only listens on localhost
 
 ## Use it from an AI agent (MCP)
 
@@ -267,7 +269,7 @@ curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 {
   "mcpServers": {
     "google-search": {
-      "command": "google-browser-scraper",
+      "command": "gserp",
       "args": ["mcp", "--nodemaven", "--country", "us", "--prewarm"],
       "env": {"NODEMAVEN_LOGIN": "...", "NODEMAVEN_PASSWORD": "..."}
     }
@@ -284,13 +286,13 @@ Google shows them.
 A ready image is published to GitHub Container Registry with every release:
 
 ```bash
-docker run --rm ghcr.io/nodemaven/google-browser-scraper doctor
-docker run --rm -p 8000:8000 -e GBS_API_KEY=change-me \
-  -e GBS_PROXY='http://USER-session-{session}:PASS@gate.example.com:7000' \
-  ghcr.io/nodemaven/google-browser-scraper serve --host 0.0.0.0
+docker run --rm ghcr.io/nodemaven/gserp doctor
+docker run --rm -p 8000:8000 -e GSERP_API_KEY=change-me \
+  -e GSERP_PROXY='http://USER-session-{session}:PASS@gate.example.com:7000' \
+  ghcr.io/nodemaven/gserp serve --host 0.0.0.0
 ```
 
-To build it yourself: `docker build -t google-browser-scraper .`
+To build it yourself: `docker build -t gserp .`
 
 ## How it works
 
@@ -406,7 +408,7 @@ The defaults come from measurements in
 | `--no-resolve-links` | | Keep result links as Google `/goto` redirects |
 | `--save-html DIR` | | Keep every page's HTML, gzipped |
 
-`google-browser-scraper search --help` lists the rest.
+`gserp search --help` lists the rest.
 
 </details>
 
@@ -420,7 +422,7 @@ endpoint, because Chrome cannot send a SOCKS5 username and password.
 ## Check your machine
 
 ```bash
-google-browser-scraper doctor
+gserp doctor
 ```
 
 Starts the browser on a blank page, sends nothing, and reports what a website
@@ -460,4 +462,4 @@ engine actually gets served, not whether it got lucky once.
 
 ## License
 
-[MIT](https://github.com/nodemaven/google-browser-scraper/blob/main/LICENSE)
+[MIT](https://github.com/nodemaven/gserp/blob/main/LICENSE)
