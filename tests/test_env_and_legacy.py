@@ -71,6 +71,10 @@ def test_the_old_import_name_warns_and_is_gserp(legacy):
     public = {p.stem for p in Path(gserp.__file__).parent.glob("*.py")} - {"__init__", "__main__"}
     assert set(old.MODULES) == public
     assert "__main__" not in old.MODULES
+    for name in public:
+        new = importlib.import_module(f"gserp.{name}")
+        assert importlib.import_module(f"google_browser_scraper.{name}") is new
+        assert getattr(old, name) is new
 
 
 def test_the_old_module_runs_the_new_cli(legacy):
