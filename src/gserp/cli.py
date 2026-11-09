@@ -104,7 +104,8 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     source = p.add_mutually_exclusive_group()
     source.add_argument(
         "--proxy",
-        help="proxy URL with a {session} placeholder for sticky sessions; also read from GSERP_PROXY",
+        help="proxy URL with a {session} placeholder for sticky sessions; "
+        "also read from GSERP_PROXY",
     )
     source.add_argument(
         "--nodemaven",
@@ -324,9 +325,7 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
     problem = locale_problem(args.hl, args.gl)
     if problem:
         raise ValueError(problem.replace("hl", "--hl", 1).replace("gl", "--gl", 1))
-    browser_args = tuple(args.browser_args) + tuple(
-        shlex.split(env.get("BROWSER_ARGS", ""))
-    )
+    browser_args = tuple(args.browser_args) + tuple(shlex.split(env.get("BROWSER_ARGS", "")))
     settings = Settings(
         engine=args.engine,
         warmup=args.warmup,
@@ -457,9 +456,7 @@ def _parse(args) -> int:
 def _doctor(args) -> int:
     from .doctor import FAIL, assess, read_fingerprint
 
-    browser_args = tuple(args.browser_args) + tuple(
-        shlex.split(env.get("BROWSER_ARGS", ""))
-    )
+    browser_args = tuple(args.browser_args) + tuple(shlex.split(env.get("BROWSER_ARGS", "")))
     fp = read_fingerprint(
         engine=args.engine, headless=args.headless, channel=args.channel, browser_args=browser_args
     )

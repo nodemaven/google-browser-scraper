@@ -101,8 +101,7 @@ class NodeMavenSource:
             from nodemaven import Proxy
         except ImportError as exc:  # pragma: no cover - depends on the extra
             raise RuntimeError(
-                "the NodeMaven source needs the SDK: "
-                "pip install 'gserp[nodemaven]'"
+                "the NodeMaven source needs the SDK: pip install 'gserp[nodemaven]'"
             ) from exc
         login = os.environ.get("NODEMAVEN_LOGIN")
         password = os.environ.get("NODEMAVEN_PASSWORD")
@@ -141,8 +140,7 @@ class NodeMavenDemoSource:
             from nodemaven.api import Client
         except ImportError as exc:  # pragma: no cover - depends on the extra
             raise RuntimeError(
-                "the NodeMaven demo source needs the SDK: "
-                "pip install 'gserp[nodemaven]'"
+                "the NodeMaven demo source needs the SDK: pip install 'gserp[nodemaven]'"
             ) from exc
         if not hasattr(Client, "create_sub_user"):
             raise RuntimeError(
