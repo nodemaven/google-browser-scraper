@@ -24,7 +24,7 @@ wait for the browser at once; a request past that is answered 429.
 `/health` answers 503 `warming` while `--prewarm` is still looking for an exit
 Google serves, and 503 `busy` when a long search holds the scraper.
 
-Set GBS_API_KEY to require `api_key=` or `Authorization: Bearer`; without it the
+Set GSERP_API_KEY to require `api_key=` or `Authorization: Bearer`; without it the
 server refuses to listen anywhere but loopback.
 """
 
@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import hmac
 import json
-import os
 import queue
 import re
 import sys
@@ -47,6 +46,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from . import env
 from .scraper import ExitsRefused, PendingLinks, Scraper
 
 REQUEST_TIMEOUT_S = 900
@@ -372,7 +372,7 @@ def make_handler(
         return done
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "google-browser-scraper"
+        server_version = "gserp"
 
         def do_GET(self):  # noqa: N802 - the stdlib's name
             parts = urlsplit(self.path)
@@ -497,10 +497,10 @@ def make_handler(
 
 
 def serve(worker: Worker, *, host: str, port: int, max_pages: int = 3) -> None:
-    api_key = os.environ.get("GBS_API_KEY") or None
+    api_key = env.get("API_KEY")
     if not api_key and host not in ("127.0.0.1", "localhost", "::1"):
         raise ValueError(
-            "set GBS_API_KEY before listening on a non-loopback address: "
+            "set GSERP_API_KEY before listening on a non-loopback address: "
             "anyone who can reach the port spends your proxy traffic"
         )
     server = ThreadingHTTPServer(

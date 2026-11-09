@@ -6,10 +6,10 @@ import time
 import pytest
 from test_scraper import REFUSED, SERVED, FakeRelay, FakeSession
 
-from google_browser_scraper.cli import main
-from google_browser_scraper.pool import Pool, merge_stats
-from google_browser_scraper.proxy import ProxyTemplate
-from google_browser_scraper.scraper import Breaker, ExitsRefused, Scraper, Settings, Templates
+from gserp.cli import main
+from gserp.pool import Pool, merge_stats
+from gserp.proxy import ProxyTemplate
+from gserp.scraper import Breaker, ExitsRefused, Scraper, Settings, Templates
 
 
 class Recording(FakeSession):
@@ -262,8 +262,8 @@ def test_workers_with_different_shared_settings_are_refused():
 
 
 def test_merged_stats_carry_the_hybrid_counters():
-    from google_browser_scraper.pool import merge_stats
-    from google_browser_scraper.scraper import Stats
+    from gserp.pool import merge_stats
+    from gserp.scraper import Stats
 
     a, b = Stats(), Stats()
     a.pages_http, b.pages_http, b.exits_poisoned = 3, 4, 1

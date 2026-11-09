@@ -6,15 +6,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from google_browser_scraper import links
-from google_browser_scraper.links import (
+from gserp import links
+from gserp.links import (
     PING_BUDGET_S,
     LinkResolver,
     held_refresh,
     ping_destination,
     ping_paths,
 )
-from google_browser_scraper.scraper import _fill_links
+from gserp.scraper import _fill_links
 
 
 class Handler(BaseHTTPRequestHandler):

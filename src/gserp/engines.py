@@ -27,7 +27,7 @@ class CloakSession(BrowserSession):
             import cloakbrowser
         except ImportError as exc:
             raise RuntimeError(
-                "the cloak engine needs: pip install 'google-browser-scraper[cloak]'"
+                "the cloak engine needs: pip install 'gserp[cloak]'"
             ) from exc
         # `viewport=None` reports the real window, the same choice as
         # `no_viewport=True` on patchright. Closing the context stops Playwright.

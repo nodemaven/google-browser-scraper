@@ -1,0 +1,43 @@
+# Publish the old name, `google-browser-scraper`, to PyPI from `legacy/`.
+#
+# The package holds no code: it depends on `gserp` at the same version and keeps
+# the old command and import working. It is released from the same published
+# GitHub release as `gserp` (see publish.yml), through its own Trusted Publisher
+# entry on PyPI, which names this file and the `pypi` environment.
+name: publish-legacy
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade build twine
+      - run: python -m build legacy --outdir dist
+      - run: python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-legacy
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-legacy
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

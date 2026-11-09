@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shlex
 import sys
 import time
@@ -13,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from . import __version__, browser, engines, warmup
+from . import __version__, browser, engines, env, warmup
 from .classify import classify
 from .output import WRITERS, open_writer, use_utf8
 from .parse import parse_serp
@@ -40,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="google-browser-scraper",
+        prog="gserp",
         description="Google results from a real browser through your own proxy.",
     )
     parser.add_argument("--version", action="version", version=__version__)
@@ -105,7 +104,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     source = p.add_mutually_exclusive_group()
     source.add_argument(
         "--proxy",
-        help="proxy URL with a {session} placeholder for sticky sessions; also read from GBS_PROXY",
+        help="proxy URL with a {session} placeholder for sticky sessions; also read from GSERP_PROXY",
     )
     source.add_argument(
         "--nodemaven",
@@ -235,7 +234,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         dest="browser_args",
-        help="extra Chromium switch, repeatable; also GBS_BROWSER_ARGS",
+        help="extra Chromium switch, repeatable; also GSERP_BROWSER_ARGS",
     )
     p.add_argument(
         "--no-relay",
@@ -305,7 +304,7 @@ def _proxy_source(args) -> Iterator[Any]:
     elif args.no_proxy:
         proxy = None
     else:
-        url = args.proxy or os.environ.get("GBS_PROXY")
+        url = args.proxy or env.get("PROXY")
         if not url:
             raise ValueError("give --proxy, --nodemaven, --nodemaven-demo or --no-proxy")
         proxy = ProxyTemplate(url)
@@ -326,7 +325,7 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
     if problem:
         raise ValueError(problem.replace("hl", "--hl", 1).replace("gl", "--gl", 1))
     browser_args = tuple(args.browser_args) + tuple(
-        shlex.split(os.environ.get("GBS_BROWSER_ARGS", ""))
+        shlex.split(env.get("BROWSER_ARGS", ""))
     )
     settings = Settings(
         engine=args.engine,
@@ -459,7 +458,7 @@ def _doctor(args) -> int:
     from .doctor import FAIL, assess, read_fingerprint
 
     browser_args = tuple(args.browser_args) + tuple(
-        shlex.split(os.environ.get("GBS_BROWSER_ARGS", ""))
+        shlex.split(env.get("BROWSER_ARGS", ""))
     )
     fp = read_fingerprint(
         engine=args.engine, headless=args.headless, channel=args.channel, browser_args=browser_args

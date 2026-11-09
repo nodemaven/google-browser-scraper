@@ -102,7 +102,7 @@ class NodeMavenSource:
         except ImportError as exc:  # pragma: no cover - depends on the extra
             raise RuntimeError(
                 "the NodeMaven source needs the SDK: "
-                "pip install 'google-browser-scraper[nodemaven]'"
+                "pip install 'gserp[nodemaven]'"
             ) from exc
         login = os.environ.get("NODEMAVEN_LOGIN")
         password = os.environ.get("NODEMAVEN_PASSWORD")
@@ -142,12 +142,12 @@ class NodeMavenDemoSource:
         except ImportError as exc:  # pragma: no cover - depends on the extra
             raise RuntimeError(
                 "the NodeMaven demo source needs the SDK: "
-                "pip install 'google-browser-scraper[nodemaven]'"
+                "pip install 'gserp[nodemaven]'"
             ) from exc
         if not hasattr(Client, "create_sub_user"):
             raise RuntimeError(
                 "the installed nodemaven SDK is too old for sub-user provisioning: "
-                "pip install --upgrade 'google-browser-scraper[nodemaven]'"
+                "pip install --upgrade 'gserp[nodemaven]'"
             )
         key = api_key or os.environ.get("NODEMAVEN_API_KEY")
         if not key:

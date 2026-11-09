@@ -3,14 +3,27 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "google-browser-scraper"
-version = "0.1.2"
-description = "Google Search results from a real browser through your own sticky proxy, with captchas and blocks reported explicitly."
+name = "gserp"
+version = "0.2.0"
+description = "Self-hosted Google SERP API: Google Search results as JSON from a real Chrome browser through your own residential proxy. HTTP API, CLI and MCP server."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "NodeMaven" }]
-keywords = ["google", "serp", "scraper", "search", "proxy", "playwright", "patchright"]
+keywords = [
+    "google",
+    "google-search",
+    "google-search-api",
+    "serp",
+    "serp-api",
+    "scraper",
+    "search",
+    "self-hosted",
+    "proxy",
+    "mcp",
+    "playwright",
+    "patchright",
+]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "License :: OSI Approved :: MIT License",
@@ -39,11 +52,11 @@ all = ["nodemaven>=0.1.5", "cloakbrowser>=0.5"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
-google-browser-scraper = "google_browser_scraper.cli:main"
+gserp = "gserp.cli:main"
 
 [project.urls]
-Source = "https://github.com/nodemaven/google-browser-scraper"
-Issues = "https://github.com/nodemaven/google-browser-scraper/issues"
+Source = "https://github.com/nodemaven/gserp"
+Issues = "https://github.com/nodemaven/gserp/issues"
 Benchmark = "https://github.com/nodemaven/proxy-benchmark"
 
 [tool.setuptools.packages.find]

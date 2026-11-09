@@ -1,6 +1,6 @@
 import pages
 
-from google_browser_scraper.parse import parse_serp, resolve_goto
+from gserp.parse import parse_serp, resolve_goto
 
 
 def test_organic_results_in_page_order_without_people_also_ask():
@@ -236,7 +236,7 @@ def test_a_page_without_a_map_pack_has_no_local_results():
 
 
 def test_place_lines_split_into_address_phone_and_hours():
-    from google_browser_scraper.parse import _place_facts
+    from gserp.parse import _place_facts
 
     lines = [
         "JFK International Airport, NY · (718) 656-1890",
@@ -260,7 +260,7 @@ def test_ai_overview_keeps_label_words_that_are_part_of_the_answer():
 
 
 def test_service_options_are_not_an_address_and_a_bare_rating_has_no_review_count():
-    from google_browser_scraper.parse import _place_facts
+    from gserp.parse import _place_facts
 
     assert _place_facts(["Dine-in \u00b7 Takeout", "12 Main St"]) == {"address": "12 Main St"}
     lone = pages._place("Solo", "4.6", "1", "", "1 Elm St").replace(
@@ -271,14 +271,14 @@ def test_service_options_are_not_an_address_and_a_bare_rating_has_no_review_coun
 
 
 def test_a_plain_street_name_is_an_address_but_a_service_option_is_not():
-    from google_browser_scraper.parse import _place_facts
+    from gserp.parse import _place_facts
 
     assert _place_facts(["Broadway", "Open \u00b7 Closes 9 PM"])["address"] == "Broadway"
     assert "address" not in _place_facts(["Dine-in \u00b7 Takeout"])
 
 
 def test_an_offer_with_a_number_is_not_an_address_and_a_label_in_a_sentence_stays():
-    from google_browser_scraper.parse import _place_facts
+    from gserp.parse import _place_facts
 
     lines = ["Broadway", "Rentals available from US$ 44/day", "12 Main St"]
     assert _place_facts(lines)["address"] == "12 Main St"
