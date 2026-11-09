@@ -40,9 +40,10 @@ residential proxy, and get clean JSON back. Use it as a CLI, a Python library,
 a local HTTP API, or an MCP server that gives AI agents live Google search.
 
 Plain HTTP is no longer a reliable way to scrape Google, and a fresh browser on a
-fresh proxy IP is refused quickly. So the scraper warms a sticky proxy session
-with ordinary browsing, lets the browser pass Google's checks, and then fetches
-results pages directly over HTTPS with the browser's own cookies. Captchas and
+fresh proxy IP is refused quickly. So the scraper warms its first sticky proxy
+session with ordinary browsing and starts later ones from the cookies Google
+already accepts, lets the browser pass Google's checks, and then fetches results
+pages directly over HTTPS with the browser's own cookies. Captchas and
 blocks are reported as such, never as "no results".
 
 ## Features
@@ -66,7 +67,7 @@ Pages of results for some other query are caught: the proxy IP serving them is d
 <td valign="top">
 
 🌐 **Real browser**<br>
-Real Chrome via Patchright, warmed up before every new identity, so Google's checks pass.
+Real Chrome via Patchright, warmed up once and then carrying the cookies Google already trusts to every new identity, so Google's checks pass.
 
 </td>
 <td valign="top">
@@ -132,8 +133,8 @@ google-browser-scraper search "best running shoes" \
   -o results.jsonl
 ```
 
-The first query takes a few minutes while a new proxy IP warms up; later queries on
-the same proxy IP take seconds. Every run ends with a summary of pages served and
+The first query takes a few minutes while the first proxy IP warms up; later
+queries take seconds, and new proxy IPs start from its cookies. Every run ends with a summary of pages served and
 traffic used.
 
 ### With NodeMaven
@@ -294,7 +295,9 @@ To build it yourself: `docker build -t google-browser-scraper .`
 ## How it works
 
 1. **New identity:** a sticky proxy session and a fresh browser profile.
-2. **Warm-up:** a few ordinary pages, staying on each for 20-45 seconds.
+2. **Warm-up:** the first proxy IP opens a few ordinary pages, staying on each
+   for 20-45 seconds. Later ones start from the Google cookies of a served proxy
+   IP and are warmed up only when no such set is accepted.
 3. **Search:** the first query on a proxy IP goes through the browser. Once Google
    serves it, the next pages come over HTTPS with the browser's cookies, until
    Google asks for its check again.
@@ -318,7 +321,8 @@ browser for every page.
 queries is dropped, and the query is asked again on a new one.
 
 **Holding proxy IPs.** A served proxy IP is kept for up to 300 queries. Every new one
-pays for a warm-up, so a short cap mostly buys more warm-up traffic. Every 50
+pays for a browser check, and for a warm-up when no cookie set is accepted, so a
+short cap mostly buys more of that traffic. Every 50
 results pages it renders, the browser is restarted on the same profile and proxy IP, which keeps
 its memory from growing over a long hold. A browser error on a search is retried
 once on the same proxy IP before it is dropped; a network error, running out of

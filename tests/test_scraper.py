@@ -1602,11 +1602,16 @@ def test_renewal_counts_served_queries_not_their_pages():
     assert [e["event"] for e in events].count("donor_renewed") == 1
 
 
-def test_cookie_sets_turn_copies_off_and_a_negative_renewal_is_refused():
-    assert Settings(donors=(DONOR,), clones=3).clones == 0
-    assert Settings(renew_donors_every=5, clones=3).clones == 0
-    assert Settings(clones=3).clones == 0  # cookie sets are renewed by default
+def test_cookie_sets_refuse_explicit_copies_and_a_negative_renewal():
+    for conflicting in (
+        dict(donors=(DONOR,), renew_donors_every=0),
+        dict(renew_donors_every=5),
+        {},  # cookie sets are renewed by default
+    ):
+        with pytest.raises(ValueError, match="clones needs renew_donors_every=0"):
+            Settings(clones=3, **conflicting)
     assert Settings(clones=3, renew_donors_every=0).clones == 3
+    assert Settings().clones == 0
     with pytest.raises(ValueError, match="renew_donors_every"):
         Settings(renew_donors_every=-1)
 

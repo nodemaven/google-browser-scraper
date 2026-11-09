@@ -310,9 +310,13 @@ class Settings:
             raise ValueError("restart_every must be 0 or more")
         if self.renew_donors_every < 0:
             raise ValueError("renew_donors_every must be 0 or more")
-        if self.donors or self.renew_donors_every:
-            # Exits start from cookie sets instead of copies of a served profile.
-            self.clones = 0
+        if self.clones and (self.donors or self.renew_donors_every):
+            # Exits start from cookie sets instead of copies of a served profile,
+            # so an explicit clones value would be dropped without a word.
+            raise ValueError(
+                "clones needs renew_donors_every=0 and no donors: cookie sets "
+                "replace copies of a served profile"
+            )
         if self.clone_refusals < 1:
             raise ValueError("clone_refusals must be at least 1")
         if self.clone_refusals > 1 and self.clone_refusals >= self.breaker:
