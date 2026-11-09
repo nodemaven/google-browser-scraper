@@ -6,6 +6,7 @@ and keeps the old import, command and `python -m` working: every
 """
 
 import importlib
+import pkgutil
 import sys
 import warnings
 
@@ -13,31 +14,19 @@ import gserp
 from gserp import *  # noqa: F403
 from gserp import __all__, __version__  # noqa: F401
 
+# FutureWarning, not DeprecationWarning: Python shows it by default wherever the
+# import happens, and this one is meant for the people running the code.
 warnings.warn(
     "google_browser_scraper is now gserp: pip install gserp and import gserp",
-    DeprecationWarning,
+    FutureWarning,
     stacklevel=2,
 )
 
-MODULES = (
-    "browser",
-    "classify",
-    "cli",
-    "doctor",
-    "engines",
-    "env",
-    "hybrid",
-    "links",
-    "mcp",
-    "output",
-    "parse",
-    "pool",
-    "proxy",
-    "quality",
-    "relay",
-    "scraper",
-    "server",
-    "warmup",
+# Every public gserp module, read from the installed package so a module added
+# later is aliased too. `__main__` and private modules are left out: importing
+# `gserp.__main__` would run the CLI.
+MODULES = tuple(
+    info.name for info in pkgutil.iter_modules(gserp.__path__) if not info.name.startswith("_")
 )
 
 for _name in MODULES:

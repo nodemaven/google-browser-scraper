@@ -62,11 +62,15 @@ def test_the_old_import_name_warns_and_is_gserp(legacy):
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         old = importlib.import_module("google_browser_scraper")
-    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+    assert any(issubclass(w.category, FutureWarning) for w in caught)
     assert old.Scraper is gserp.Scraper and old.__version__ == gserp.__version__
     from google_browser_scraper.scraper import Settings
 
     assert Settings is gserp.scraper.Settings
+    # Every public module is aliased, read from the package rather than a list.
+    public = {p.stem for p in Path(gserp.__file__).parent.glob("*.py")} - {"__init__", "__main__"}
+    assert set(old.MODULES) == public
+    assert "__main__" not in old.MODULES
 
 
 def test_the_old_module_runs_the_new_cli(legacy):

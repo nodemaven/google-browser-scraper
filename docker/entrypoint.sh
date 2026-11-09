@@ -2,6 +2,12 @@
 # Start a virtual display the size of a common desktop, then run the CLI.
 set -e
 
+# WebGL through SwiftShader, as there is no GPU. Set only when neither the
+# current nor the old variable name is given, so either one overrides it.
+if [ -z "${GSERP_BROWSER_ARGS:-}" ] && [ -z "${GBS_BROWSER_ARGS:-}" ]; then
+    export GSERP_BROWSER_ARGS="--enable-unsafe-swiftshader"
+fi
+
 Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
 
 # Wait for the display socket rather than sleeping a fixed time.

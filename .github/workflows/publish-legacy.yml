@@ -29,8 +29,26 @@ jobs:
           name: dist-legacy
           path: dist/
 
-  publish:
+  # The package depends on gserp, which publish.yml uploads from the same release
+  # in a separate workflow. Wait until that version is on PyPI, so nobody can
+  # install the old name while its dependency is missing.
+  wait-for-gserp:
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Wait for gserp ${{ github.event.release.tag_name }} on PyPI
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${TAG#v}"
+          until curl -sf -o /dev/null "https://pypi.org/pypi/gserp/${version}/json"; do
+            echo "gserp ${version} not on PyPI yet"
+            sleep 30
+          done
+
+  publish:
+    needs: wait-for-gserp
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

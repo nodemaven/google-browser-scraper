@@ -19,8 +19,7 @@ FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    DISPLAY=:99 \
-    GSERP_BROWSER_ARGS="--enable-unsafe-swiftshader"
+    DISPLAY=:99
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

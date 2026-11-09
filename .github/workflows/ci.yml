@@ -38,11 +38,12 @@ jobs:
       # 127.0.0.1, and nothing here needs a proxy or a real search.
       - name: Test
         run: python -m pytest -q
-      # The old name: no code of its own, so installing it next to this build
-      # must give the old command running the new CLI.
+      # The old name: no code of its own, so installing it next to this build,
+      # with its dependency on gserp resolved against it, must give the old
+      # command running the new CLI.
       - name: Old name
         run: |
-          python -m pip install --no-deps ./legacy
+          python -m pip install ./legacy
           google-browser-scraper --version
 
   # The branch protection rule needs one stable name, whatever the matrix is.
