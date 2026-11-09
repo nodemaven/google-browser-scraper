@@ -21,6 +21,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     DISPLAY=:99
 
+# WebGL through SwiftShader, as there is no GPU. Under the old name on
+# purpose: GSERP_BROWSER_ARGS is read first, so either name given to the
+# container overrides it, and `docker exec` sees it too.
+ENV GBS_BROWSER_ARGS="--enable-unsafe-swiftshader"
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         xvfb xauth tini \
