@@ -626,6 +626,7 @@ def test_an_exit_specific_proxy_refusal_does_not_stop_the_run():
 def clone_settings(**overrides):
     values = dict(
         clones=3,
+        renew_donors_every=0,
         max_queries_per_exit=2,
         gap_seconds=(0, 0),
         dwell_seconds=(0, 0),
@@ -1114,7 +1115,7 @@ def test_a_template_whose_folder_cannot_be_made_is_given_up_not_held(monkeypatch
 
     monkeypatch.setattr(module.tempfile, "mkdtemp", no_disk)
     events = []
-    settings = Settings(clones=2, gap_seconds=(0, 0), dwell_seconds=(0, 0))
+    settings = Settings(clones=2, renew_donors_every=0, gap_seconds=(0, 0), dwell_seconds=(0, 0))
     # The identity whose template failed is retired, so "b" runs on a second one.
     s = scraper([[SERVED], [SERVED]], settings, events=events)
     records = list(s.run(["a", "b"]))
@@ -1604,7 +1605,8 @@ def test_renewal_counts_served_queries_not_their_pages():
 def test_cookie_sets_turn_copies_off_and_a_negative_renewal_is_refused():
     assert Settings(donors=(DONOR,), clones=3).clones == 0
     assert Settings(renew_donors_every=5, clones=3).clones == 0
-    assert Settings(clones=3).clones == 3
+    assert Settings(clones=3).clones == 0  # cookie sets are renewed by default
+    assert Settings(clones=3, renew_donors_every=0).clones == 3
     with pytest.raises(ValueError, match="renew_donors_every"):
         Settings(renew_donors_every=-1)
 

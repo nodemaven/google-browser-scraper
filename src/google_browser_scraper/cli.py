@@ -19,7 +19,7 @@ from .output import WRITERS, open_writer, use_utf8
 from .parse import parse_serp
 from .pool import Pool
 from .proxy import NodeMavenDemoSource, NodeMavenSource, ProxyTemplate
-from .scraper import DIRECT_MODES, ExitsRefused, Scraper, Settings
+from .scraper import DIRECT_MODES, RENEW_EVERY, ExitsRefused, Scraper, Settings
 from .server import locale_problem
 
 
@@ -179,8 +179,8 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         type=int,
         default=10,
         metavar="N",
-        help="start up to N new proxy IPs from copies of the first served one's cookies "
-        "instead of warming each one (default 10; 0 turns it off)",
+        help="with --renew-cookies 0: start up to N new proxy IPs from copies of the first "
+        "served one's cookies instead of warming each one (default 10; 0 turns it off)",
     )
     p.add_argument(
         "--clone-max-age",
@@ -260,11 +260,11 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--renew-cookies",
         type=_non_negative,
-        default=0,
+        default=RENEW_EVERY,
         metavar="N",
         help="every N served queries on a proxy IP, its Google cookies replace the set new "
         "proxy IPs start from, so the set stays fresh; without --cookies the first renewal "
-        "ends the warm-ups (default 0, off; turns --clone off)",
+        f"ends the warm-ups (default {RENEW_EVERY}; 0 turns it off and brings back --clone)",
     )
     p.add_argument(
         "--cookies-out",

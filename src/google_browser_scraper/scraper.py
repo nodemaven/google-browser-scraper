@@ -111,6 +111,8 @@ DONOR_REFUSALS = 2
 #: Cookie sets renewal keeps, each from a different served exit, so a refused
 #: set has fresh ones to hand over to instead of one set overwritten in place.
 DONOR_SLOTS = 4
+#: Served queries on an exit between renewals of the cookie set, by default.
+RENEW_EVERY = 25
 
 
 def _retry_copy(copy, dest: str, attempts: int) -> None:
@@ -285,8 +287,9 @@ class Settings:
     #: Every this many served queries on an exit, its Google cookies replace
     #: the cookie set in use, so the sets stay as fresh as the exits serving
     #: them and need no warm-up of their own. Without `donors` the first
-    #: renewal turns warm-ups off: later exits start from it. 0 never renews.
-    renew_donors_every: int = 0
+    #: renewal turns warm-ups off: later exits start from it. 0 never renews,
+    #: and brings back `clones`.
+    renew_donors_every: int = RENEW_EVERY
     #: Directory each renewed set is written to, as `donor_<n>.json`, for the
     #: next run's `donors`.
     donors_out: str | None = None

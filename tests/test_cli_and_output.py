@@ -197,6 +197,15 @@ def test_copies_are_on_by_default_and_can_be_turned_off():
     assert parser.parse_args(["search", "q", "--no-proxy", "--clone", "0"]).clone == 0
 
 
+def test_cookie_sets_are_renewed_by_default_and_zero_brings_copies_back():
+    parse = cli._parser().parse_args
+    settings = cli._build(parse(["search", "q", "--no-proxy"]), None)[0].settings
+    assert settings.renew_donors_every == 25 and settings.clones == 0
+    args = parse(["search", "q", "--no-proxy", "--renew-cookies", "0"])
+    settings = cli._build(args, None)[0].settings
+    assert settings.renew_donors_every == 0 and settings.clones == 10
+
+
 def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
     import json
 

@@ -168,6 +168,7 @@ def test_a_worker_starts_from_the_template_another_worker_left():
 
     settings = Settings(
         clones=3,
+        renew_donors_every=0,
         max_queries_per_exit=50,
         gap_seconds=(0, 0),
         dwell_seconds=(0, 0),
@@ -195,7 +196,13 @@ def test_a_scraper_leaves_a_shared_template_for_its_owner_to_drop():
     templates, breaker = Templates(3, 3600.0), Breaker(6)
     s = scraper(
         [[SERVED, SERVED]],
-        Settings(clones=3, max_queries_per_exit=5, gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+        Settings(
+            clones=3,
+            renew_donors_every=0,
+            max_queries_per_exit=5,
+            gap_seconds=(0, 0),
+            dwell_seconds=(0, 0),
+        ),
     )
     s.share(breaker, templates)
     list(s.run(["a", "b"]))
@@ -243,7 +250,7 @@ def test_workers_with_different_shared_settings_are_refused():
     def make(i):
         return Scraper(
             ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
-            Settings(clones=i, gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+            Settings(clones=i, renew_donors_every=0, gap_seconds=(0, 0), dwell_seconds=(0, 0)),
             session_factory=lambda proxy, **o: Recording(proxy, script=[SERVED], **o),
             relay_factory=FakeRelay,
             resolver_factory=None,
