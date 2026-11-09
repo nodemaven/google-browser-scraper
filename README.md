@@ -1,21 +1,21 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/nodemaven/gserp/main/assets/banner.png" alt="gserp">
+<img src="https://raw.githubusercontent.com/nodemaven/gserp/main/assets/banner.png" alt="Google SERP">
 
-<h1>gserp</h1>
+<h1>Google SERP</h1>
 
 <p><b>Self-hosted SERP API alternative: Google search results from a real Chrome browser and your own residential proxy.</b></p>
 
-<p>Formerly <code>google-browser-scraper</code>: that package now installs gserp, and the old command, import and <code>GBS_*</code> variables keep working.</p>
+<p><code>pip install gserp</code>. Formerly <code>google-browser-scraper</code>: that package now installs gserp, and the old command, import and <code>GBS_*</code> variables keep working.</p>
 
-[![pypi](https://img.shields.io/pypi/v/gserp?style=flat-square)](https://pypi.org/project/gserp/)
+[![pypi](https://img.shields.io/pypi/v/gserp?style=flat-square&cacheSeconds=3600)](https://pypi.org/project/gserp/)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://pypi.org/project/gserp/)
 [![tests](https://img.shields.io/github/actions/workflow/status/nodemaven/gserp/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/nodemaven/gserp/actions/workflows/ci.yml)
-[![license](https://img.shields.io/pypi/l/gserp?style=flat-square)](https://opensource.org/licenses/MIT)
+[![license](https://img.shields.io/pypi/l/gserp?style=flat-square&cacheSeconds=3600)](https://opensource.org/licenses/MIT)
 [![docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/nodemaven/gserp/pkgs/container/gserp)
 [![2 GB free with code GOOGLENM](https://img.shields.io/badge/%F0%9F%8E%81%202%20GB%20free-code%20GOOGLENM-1153FC?style=flat-square)](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=promo_badge)
 
-<a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="gserp on DevHunt" height="44"></a>
+<a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="Google SERP on DevHunt" height="44"></a>
 
 [Quickstart](#quickstart) · [Output](#what-you-get) · [Poisoned results](#poisoned-results-protection) · [HTTP API](#run-it-as-an-api) · [MCP](#use-it-from-an-ai-agent-mcp) · [Docker](#docker) · [How it works](#how-it-works) · [Options](#options)
 
