@@ -92,10 +92,9 @@ def assess(fp: dict) -> list[Check]:
     elif "SwiftShader" in renderer:
         checks.append(
             Check(
-                WARN,
+                PASS,
                 "WebGL",
-                f"software renderer ({renderer}); untested against "
-                "Google, and rare on real desktops",
+                f"software renderer ({renderer}); what a GPU-less server has, and Google serves it",
             )
         )
     else:
@@ -126,17 +125,7 @@ def assess(fp: dict) -> list[Check]:
     else:
         checks.append(Check(PASS, "CPU cores", str(cores)))
 
-    platform = fp.get("platform") or ""
-    if platform.startswith("Linux"):
-        checks.append(
-            Check(
-                WARN,
-                "platform",
-                f"{platform}; Linux is experimental for this tool",
-            )
-        )
-    else:
-        checks.append(Check(PASS, "platform", platform))
+    checks.append(Check(PASS, "platform", fp.get("platform") or ""))
 
     checks.append(
         Check(

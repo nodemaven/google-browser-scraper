@@ -313,7 +313,7 @@ def test_events_name_sessions_and_never_carry_credentials():
     events = []
     list(scraper([[REFUSED], [SERVED]], events=events).run(["a"]))
     kinds = [e["event"] for e in events]
-    assert kinds == ["minted", "query", "retired", "minted", "query", "retired"]
+    assert kinds == ["warming", "minted", "query", "retired"] * 2
     assert all("password" not in e and "proxy" not in e for e in events)
 
 
@@ -879,11 +879,51 @@ def test_links_resolve_while_the_browser_goes_on_to_the_next_query():
 
 
 def test_stop_after_read_leaves_the_page_after_each_query_and_only_when_asked():
+    # One blank is the end of the warm-up; stop-after-read adds one per query.
     list(scraper([[SERVED, SERVED]]).run(["a", "b"]))
-    assert FakeSession.opened[0].blanks == 0
+    assert FakeSession.opened[0].blanks == 1
     settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), stop_after_read=True)
     list(scraper([[SERVED, SERVED]], settings).run(["a", "b"]))
-    assert FakeSession.opened[0].blanks == 2
+    assert FakeSession.opened[0].blanks == 3
+
+
+def test_the_warm_up_leaves_its_last_page_before_the_first_search():
+    order = []
+
+    class Recording(FakeSession):
+        def visit(self, url, dwell):
+            order.append("visit")
+            return super().visit(url, dwell)
+
+        def blank(self):
+            order.append("blank")
+            super().blank()
+
+        def search(self, query, *args, **kwargs):
+            order.append("search")
+            return super().search(query, *args, **kwargs)
+
+    list(scraper([[SERVED]], cls=Recording).run(["a"]))
+    assert order[-2:] == ["blank", "search"] and order.count("blank") == 1
+    assert order[: order.index("blank")] == ["visit"] * order.index("blank")
+
+
+def test_no_warm_up_means_nothing_to_leave():
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), warmup="off")
+    list(scraper([[SERVED]], settings).run(["a"]))
+    assert FakeSession.opened[0].blanks == 0
+
+
+def test_a_failed_blank_after_the_warm_up_does_not_lose_the_identity():
+    events = []
+
+    class Stuck(FakeSession):
+        def blank(self):
+            raise RuntimeError("page crashed")
+
+    records = list(scraper([[SERVED]], cls=Stuck, events=events).run(["a"]))
+    assert records[0]["search_metadata"]["status"] == "Success"
+    assert any(e["event"] == "blank_failed" for e in events)
 
 
 class _SlowResolver:

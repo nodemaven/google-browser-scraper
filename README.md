@@ -118,10 +118,48 @@ CLI, Python library, HTTP API, MCP server or Docker image. Traffic and cost per 
 
 ## Install
 
+Python 3.10 or newer, in a virtual environment:
+
 ```bash
+python3 -m venv gserp-env
+source gserp-env/bin/activate
 pip install gserp
 patchright install chromium
+gserp doctor
 ```
+
+In PowerShell:
+
+```powershell
+python -m venv gserp-env
+Set-ExecutionPolicy -Scope Process Bypass -Force   # lets this window run Activate.ps1
+.\gserp-env\Scripts\Activate.ps1
+pip install gserp
+patchright install chromium
+gserp doctor
+```
+
+`doctor` ends with `ready` when the browser starts and looks like a desktop.
+
+<details>
+<summary><b>On a Linux server (no screen)</b></summary>
+
+<br>
+
+The browser runs with a window, so a server needs a virtual display, and
+software WebGL when there is no GPU:
+
+```bash
+sudo apt install xvfb
+sudo gserp-env/bin/patchright install-deps chromium
+export GSERP_BROWSER_ARGS=--enable-unsafe-swiftshader
+xvfb-run -a gserp doctor
+```
+
+Then start every command with `xvfb-run -a`. The [Docker image](#docker) has
+all of this built in.
+
+</details>
 
 ## Quickstart
 
@@ -130,14 +168,13 @@ patchright install chromium
 > your provider expects a session id in the username.
 
 ```bash
-gserp search "best running shoes" \
-  --proxy "http://USER-session-{session}:PASS@gate.example.com:7000" \
-  -o results.jsonl
+gserp search "best running shoes" --proxy "http://USER-session-{session}:PASS@gate.example.com:7000" -o results.jsonl
 ```
 
-The first query takes a few minutes while the first proxy IP warms up; later
-queries take seconds, and new proxy IPs start from its cookies. Every run ends with a summary of pages served and
-traffic used.
+The first query takes a few minutes while the first proxy IP warms up on a few
+ordinary pages; the terminal shows each step. Later queries take seconds, and
+new proxy IPs start from its cookies. Every run ends with the pages served and
+the traffic used, warm-up apart from the pages.
 
 ### With NodeMaven
 
@@ -146,6 +183,16 @@ The session id is handled for you and the credentials come from the environment:
 ```bash
 pip install "gserp[nodemaven]"
 export NODEMAVEN_LOGIN=... NODEMAVEN_PASSWORD=...
+printf "best running shoes\nhow to boil eggs\n" > queries.txt
+gserp search -f queries.txt --nodemaven --country us -o results.jsonl
+```
+
+In PowerShell:
+
+```powershell
+pip install "gserp[nodemaven]"
+$env:NODEMAVEN_LOGIN = "..."; $env:NODEMAVEN_PASSWORD = "..."
+Set-Content queries.txt "best running shoes", "how to boil eggs"
 gserp search -f queries.txt --nodemaven --country us -o results.jsonl
 ```
 
@@ -253,6 +300,8 @@ is asked again on a fresh one.
 gserp serve --nodemaven --country us --prewarm
 curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 ```
+
+In PowerShell, call `curl.exe` (plain `curl` there is another command).
 
 - Same record format as above
 - `hl` (language) and `gl` (country) per request: `/search.json?q=...&hl=de&gl=at`
@@ -368,8 +417,8 @@ to 45 seconds while the queries carry on.
 Records still come out in the order each browser searched them.
 
 **Traffic.** Everything goes through a small local relay that counts bytes per
-host and blocks a large model download Chrome otherwise makes on every fresh
-profile.
+host and refuses what no search needs: the models and data files Chrome
+otherwise downloads into every fresh profile, and the videos of a warm-up page.
 
 </details>
 
@@ -408,6 +457,7 @@ The defaults come from measurements in
 | `--no-resolve-links` | | Keep result links as Google `/goto` redirects |
 | `--save-html DIR` | | Keep every page's HTML, gzipped |
 
+`-v` prints every step as JSON instead, and the summary as one JSON line.
 `gserp search --help` lists the rest.
 
 </details>

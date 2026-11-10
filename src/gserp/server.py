@@ -46,7 +46,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import env
+from . import env, hints
 from .scraper import ExitsRefused, PendingLinks, Scraper
 
 REQUEST_TIMEOUT_S = 900
@@ -84,6 +84,8 @@ class Worker:
     ) -> None:
         self._make = make_scraper
         self._prewarm = prewarm
+        #: Whether a prewarm was asked for; `ready` is set once it is over.
+        self.prewarming = prewarm
         self._log = log or (lambda message: print(message, file=sys.stderr))
         self._jobs: queue.Queue = queue.Queue()
         self._thread = threading.Thread(target=self._loop, name="gbs-worker", daemon=True)
@@ -155,7 +157,12 @@ class Worker:
                     self.scraper.prewarm()
                     self._log("prewarm: an exit is served")
                 except Exception as exc:
-                    self._log(f"prewarm failed: {type(exc).__name__}: {exc}")
+                    hint = hints.explain(exc)
+                    self._log(
+                        f"prewarm failed: {hint}"
+                        if hint
+                        else f"prewarm failed: {type(exc).__name__}: {exc}"
+                    )
                     self.scraper.reset_breaker()
             self.ready.set()
             while True:
@@ -171,7 +178,12 @@ class Worker:
                     future.set_exception(exc)
         except BaseException as exc:
             cause = exc
-            self._log(f"worker stopped: {type(exc).__name__}: {exc}")
+            hint = hints.explain(exc)
+            self._log(
+                f"worker stopped: {hint}"
+                if hint
+                else f"worker stopped: {type(exc).__name__}: {exc}"
+            )
         finally:
             try:
                 self.scraper.close()
@@ -487,6 +499,10 @@ def make_handler(
             self.wfile.write(data)
 
         def log_message(self, fmt, *args):
+            # Health checks (Docker, load balancers, a script waiting for the
+            # prewarm) would bury every other line.
+            if self.path.split("?")[0] == "/health":
+                return
             # The path carries the api_key; log the method and status only.
             print(
                 f"{self.command} {self.path.split('?')[0]} {args[1] if len(args) > 1 else ''}",
@@ -507,6 +523,12 @@ def serve(worker: Worker, *, host: str, port: int, max_pages: int = 3) -> None:
         (host, port), make_handler(worker, api_key=api_key, max_pages=max_pages)
     )
     print(f"listening on http://{host}:{server.server_port}/search.json?q=...", file=sys.stderr)
+    if worker.prewarming and not worker.ready.is_set():
+        print(
+            "warming up a proxy IP before the first request (--prewarm); this takes a "
+            "few minutes, and /health answers 503 until it is done",
+            file=sys.stderr,
+        )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

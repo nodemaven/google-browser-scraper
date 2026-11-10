@@ -12,11 +12,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from . import __version__, browser, engines, env, warmup
+from . import __version__, browser, engines, env, hints, warmup
 from .classify import classify
 from .output import WRITERS, open_writer, use_utf8
 from .parse import parse_serp
 from .pool import Pool
+from .progress import Progress
 from .proxy import NodeMavenDemoSource, NodeMavenSource, ProxyTemplate
 from .scraper import DIRECT_MODES, RENEW_EVERY, ExitsRefused, Scraper, Settings
 from .server import locale_problem
@@ -33,8 +34,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return args.handler(args)
     except (ValueError, RuntimeError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        if not hints.report(exc):
+            print(f"error: {exc}", file=sys.stderr)
         return 1
+    except Exception as exc:
+        if hints.report(exc):
+            return 1
+        raise
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -321,7 +327,9 @@ def _proxy_source(args) -> Iterator[Any]:
         _cleanup_subuser(proxy, args.keep_subuser)
 
 
-def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[Scraper, str]:
+def _build(
+    args, proxy, *, pages: int = 1, worker: int | None = None, progress: Progress | None = None
+) -> tuple[Scraper, str]:
     problem = locale_problem(args.hl, args.gl)
     if problem:
         raise ValueError(problem.replace("hl", "--hl", 1).replace("gl", "--gl", 1))
@@ -368,6 +376,8 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
             )
 
         log = _log
+    elif progress is not None:
+        log = progress.on_event
 
     described = proxy.describe() if proxy else "none (this machine's own address)"
     if args.verbose and not worker:
@@ -378,16 +388,24 @@ def _build(args, proxy, *, pages: int = 1, worker: int | None = None) -> tuple[S
 def _search(args) -> int:
     queries = list(args.queries)
     if args.file:
-        queries += args.file.read_text(encoding="utf-8-sig").splitlines()
+        try:
+            queries += args.file.read_text(encoding="utf-8-sig").splitlines()
+        except FileNotFoundError:
+            raise ValueError(f"query file not found: {args.file} (one query per line)") from None
     if not any(q.strip() for q in queries):
         raise ValueError("no queries given")
+    progress = None
+    if not args.verbose:
+        total = sum(1 for q in queries if q.strip())
+        progress = Progress(total=total, breaker=Settings().breaker)
     with _proxy_source(args) as proxy:
         if args.workers != 1:
             scraper = Pool(
-                lambda i: _build(args, proxy, pages=args.pages, worker=i)[0], args.workers
+                lambda i: _build(args, proxy, pages=args.pages, worker=i, progress=progress)[0],
+                args.workers,
             )
         else:
-            scraper, _ = _build(args, proxy, pages=args.pages)
+            scraper, _ = _build(args, proxy, pages=args.pages, progress=progress)
         stream = args.output.open("w", encoding="utf-8", newline="") if args.output else sys.stdout
         writer = open_writer(args.format, stream)
         failed, code = 0, 0
@@ -395,8 +413,13 @@ def _search(args) -> int:
             for record in scraper.run(queries):
                 failed += record["search_metadata"]["status"] != "Success"
                 writer.write(record)
+                if progress is not None:
+                    progress.record(record)
         except ExitsRefused as exc:
-            print(f"stopped: {exc}", file=sys.stderr)
+            # A pool worker that failed on setup (no browser, no display)
+            # arrives wrapped here; its fix is one line too.
+            if not hints.report(exc):
+                print(f"stopped: {exc}", file=sys.stderr)
             code = 3
         finally:
             writer.close()
@@ -406,15 +429,21 @@ def _search(args) -> int:
             if args.output:
                 stream.close()
             summary = scraper.stats.summary(args.price_per_gb)
-            print("summary: " + json.dumps(summary), file=sys.stderr)
+            if progress is not None:
+                progress.summary(summary)
+            else:
+                print("summary: " + json.dumps(summary), file=sys.stderr)
     return code or (4 if failed else 0)
 
 
 def _serve(args) -> int:
     from .server import Worker, serve
 
+    progress = None if args.verbose else Progress(breaker=Settings().breaker)
     with _proxy_source(args) as proxy:
-        worker = Worker(lambda: _build(args, proxy)[0], prewarm=args.prewarm).start()
+        worker = Worker(
+            lambda: _build(args, proxy, progress=progress)[0], prewarm=args.prewarm
+        ).start()
         serve(worker, host=args.host, port=args.port, max_pages=args.max_pages)
     return 0
 
@@ -423,8 +452,11 @@ def _mcp(args) -> int:
     from .mcp import McpServer
     from .server import Worker
 
+    progress = None if args.verbose else Progress(breaker=Settings().breaker)
     with _proxy_source(args) as proxy:
-        worker = Worker(lambda: _build(args, proxy)[0], prewarm=args.prewarm).start()
+        worker = Worker(
+            lambda: _build(args, proxy, progress=progress)[0], prewarm=args.prewarm
+        ).start()
         try:
             McpServer(worker).serve()
         finally:
@@ -465,7 +497,11 @@ def _doctor(args) -> int:
     print(f"engine: {args.engine}")
     for c in checks:
         print(f"[{c.status:4}] {c.name:<{width}}  {c.detail}")
-    return 1 if any(c.status == FAIL for c in checks) else 0
+    if any(c.status == FAIL for c in checks):
+        print("not ready: fix the [fail] lines above first")
+        return 1
+    print("ready: run gserp search with your proxy")
+    return 0
 
 
 def _html_dir(folder: Path | None, worker: int | None) -> str | None:

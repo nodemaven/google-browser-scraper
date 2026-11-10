@@ -1561,6 +1561,18 @@ class Scraper:
         started = time.monotonic()
         picked = self._donors.current()
         donor = {"cookies": picked[2]} if picked else {}
+        # Donor cookies stand in for the warm-up; no settle either, a first
+        # search right after launch is served as often with them.
+        pages = () if donor else ladder.pages(s.warmup)
+        self._emit(
+            {
+                "event": "warming",
+                "session": session_id,
+                "pages": len(pages),
+                "donor": bool(donor),
+                "spare": pinned,
+            }
+        )
 
         def make() -> Any:
             return self._hybrid(
@@ -1594,9 +1606,6 @@ class Scraper:
             if relay is not None:
                 relay.stop()
             raise
-        # Donor cookies stand in for the warm-up; no settle either, a first
-        # search right after launch is served as often with them.
-        pages = () if donor else ladder.pages(s.warmup)
         delivered = 0
         for url in pages:
             if pinned and self._cancel.is_set():
@@ -1604,6 +1613,15 @@ class Scraper:
             delivered += bool(session.visit(url, self._rng.uniform(*s.dwell_seconds)))
             if _account_refusal(relay):
                 break  # every further page is refused too, each after a full timeout
+        if delivered:
+            # A warm-up page can navigate itself after the dwell (Trends does),
+            # which would interrupt the first search; leave it first.
+            try:
+                session.blank()
+            except Exception as exc:
+                self._emit(
+                    {"event": "blank_failed", "session": session_id, "error": describe_error(exc)}
+                )
         warm_bytes = relay.total if relay is not None else None
         return Identity(
             session_id,
