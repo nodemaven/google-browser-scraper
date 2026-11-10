@@ -230,13 +230,14 @@ class Relay:
         # One request per connection: the browser may reuse a proxy connection
         # for another host, and the next request would bypass the checks above
         # and go to this host's server. `Connection: close` makes the server end
-        # it after the answer, so the browser opens a new one.
-        lines = [
-            ln
-            for ln in head.split("\r\n")
-            if not ln.lower().startswith(("proxy-", "connection:", "keep-alive:"))
-        ]
-        lines.insert(1, "Connection: close")
+        # it after the answer, so the browser opens a new one. An Upgrade
+        # (WebSocket) keeps its own headers: it becomes one stream to this host.
+        lines = [ln for ln in head.split("\r\n") if not ln.lower().startswith("proxy-")]
+        if not any(ln.lower().startswith("upgrade:") for ln in lines[1:]):
+            lines = [
+                ln for ln in lines if not ln.lower().startswith(("connection:", "keep-alive:"))
+            ]
+            lines.insert(1, "Connection: close")
         try:
             if self._upstream_addr is None:
                 upstream = self._open(target.hostname, target.port or 80)

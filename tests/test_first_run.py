@@ -289,6 +289,44 @@ def test_a_pool_worker_setup_error_is_one_line(monkeypatch, capsys):
     assert "error: the browser is not installed" in err and "stopped:" not in err
 
 
+def _forwarded_head(request: str) -> str:
+    seen = []
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    def serve():
+        conn, _ = server.accept()
+        seen.append(conn.recv(4096).decode("latin-1"))
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        conn.close()
+
+    import threading
+
+    threading.Thread(target=serve, daemon=True).start()
+    relay = Relay(None)
+    address = relay.start()
+    try:
+        host, rport = address.removeprefix("http://").split(":")
+        with socket.create_connection((host, int(rport)), timeout=5) as sock:
+            sock.sendall(request.format(port=port).encode())
+            while sock.recv(4096):
+                pass
+    finally:
+        relay.stop()
+        server.close()
+    return seen[0].lower()
+
+
+def test_an_upgrade_request_keeps_its_connection_header():
+    head = _forwarded_head(
+        "GET http://127.0.0.1:{port}/ws HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        "Connection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
+    )
+    assert "connection: upgrade" in head and "connection: close" not in head
+
+
 def test_plain_http_is_one_request_per_connection():
     seen = []
     server = socket.socket()
