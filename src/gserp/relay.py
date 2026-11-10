@@ -15,8 +15,10 @@ without the relay), never touches the bytes inside a tunnel (TLS is end to end,
 so the target sees the browser's own handshake), and never logs the header it
 builds, which is base64 and not encryption.
 
-One host is refused locally: Chrome's Optimization Guide, which a fresh profile
-otherwise downloads a large on-device model from. No search needs it.
+A few hosts are refused locally, because no search needs them and every byte
+they fetch is billed proxy traffic: Chrome's Optimization Guide and its
+component updater, which a fresh profile otherwise uses to download models and
+data files of its own, and the video host of a warm-up page.
 """
 
 from __future__ import annotations
@@ -31,7 +33,17 @@ CONNECT_TIMEOUT = 30.0
 IDLE_TIMEOUT = 120.0
 CHUNK = 65536
 MAX_HEAD_BYTES = 65536
-VENDOR_FETCH = frozenset({"optimizationguide-pa.googleapis.com"})
+VENDOR_FETCH = frozenset(
+    {
+        "optimizationguide-pa.googleapis.com",
+        # Chrome's component updater: downloads for a fresh profile (a ~9 MB
+        # certificate revocation list, models) come from these.
+        "dl.google.com",
+        ".gvt1.com",
+        # Videos on The Verge, a warm-up page; tens of MB a visit.
+        "volume-assets.voxmedia.com",
+    }
+)
 
 
 class Relay:
@@ -153,13 +165,24 @@ class Relay:
         except OSError:
             pass
 
+    def is_blocked(self, host: str) -> bool:
+        """Whether `host` is refused: an exact entry, or a `.suffix` entry
+        matching the host or any of its subdomains."""
+        host = host.lower()
+        if host in self.block_hosts:
+            return True
+        return any(
+            entry.startswith(".") and (host.endswith(entry) or host == entry[1:])
+            for entry in self.block_hosts
+        )
+
     def _fail(self) -> None:
         with self._lock:
             self.failures += 1
 
     def _tunnel(self, client: socket.socket, authority: str) -> None:
         host, port = _split_authority(authority, 443)
-        if host in self.block_hosts:
+        if self.is_blocked(host):
             self._refuse(client)
             return
         try:
@@ -200,7 +223,7 @@ class Relay:
         """Plain HTTP in absolute-URI form (revocation checks, http:// redirects)."""
         target = urlsplit(head.split("\r\n", 1)[0].split(" ")[1])
         host = (target.hostname or "").lower()
-        if host in self.block_hosts:
+        if self.is_blocked(host):
             self._refuse(client)
             return
         lines = [ln for ln in head.split("\r\n") if not ln.lower().startswith("proxy-")]

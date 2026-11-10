@@ -1561,6 +1561,18 @@ class Scraper:
         started = time.monotonic()
         picked = self._donors.current()
         donor = {"cookies": picked[2]} if picked else {}
+        # Donor cookies stand in for the warm-up; no settle either, a first
+        # search right after launch is served as often with them.
+        pages = () if donor else ladder.pages(s.warmup)
+        self._emit(
+            {
+                "event": "warming",
+                "session": session_id,
+                "pages": len(pages),
+                "donor": bool(donor),
+                "spare": pinned,
+            }
+        )
 
         def make() -> Any:
             return self._hybrid(
@@ -1594,9 +1606,6 @@ class Scraper:
             if relay is not None:
                 relay.stop()
             raise
-        # Donor cookies stand in for the warm-up; no settle either, a first
-        # search right after launch is served as often with them.
-        pages = () if donor else ladder.pages(s.warmup)
         delivered = 0
         for url in pages:
             if pinned and self._cancel.is_set():

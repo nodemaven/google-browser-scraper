@@ -105,7 +105,11 @@ def test_doctor_assessment():
     )
     by_name = {c.name: c.status for c in assess(linux_server)}
     assert by_name["WebGL"] == WARN
-    assert by_name["CPU cores"] == WARN and by_name["platform"] == WARN
+    assert by_name["CPU cores"] == WARN
+    # Linux runs as well as Windows; the platform is reported, not flagged.
+    assert by_name["platform"] == PASS
+    software = dict(linux_server, webgl_renderer="ANGLE (Google, SwiftShader Device)")
+    assert {c.name: c.status for c in assess(software)}["WebGL"] == PASS
 
     headless = dict(windows, user_agent="Mozilla/5.0 HeadlessChrome/151.0.0.0")
     assert {c.name: c.status for c in assess(headless)}["user agent"] == FAIL

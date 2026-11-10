@@ -313,7 +313,7 @@ def test_events_name_sessions_and_never_carry_credentials():
     events = []
     list(scraper([[REFUSED], [SERVED]], events=events).run(["a"]))
     kinds = [e["event"] for e in events]
-    assert kinds == ["minted", "query", "retired", "minted", "query", "retired"]
+    assert kinds == ["warming", "minted", "query", "retired"] * 2
     assert all("password" not in e and "proxy" not in e for e in events)
 
 
