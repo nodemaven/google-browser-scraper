@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "google-browser-scraper"
-version = "0.2.0"
+version = "0.2.1"
 description = "Renamed to gserp. Installing this installs gserp and keeps the old command and import working."
 readme = "README.md"
 license = "MIT"
@@ -19,13 +19,13 @@ classifiers = [
     "Development Status :: 7 - Inactive",
     "Programming Language :: Python :: 3",
 ]
-dependencies = ["gserp>=0.2.0"]
+dependencies = ["gserp>=0.2.1"]
 
 [project.optional-dependencies]
-nodemaven = ["gserp[nodemaven]>=0.2.0"]
-cloak = ["gserp[cloak]>=0.2.0"]
-all = ["gserp[all]>=0.2.0"]
-dev = ["gserp[dev]>=0.2.0"]
+nodemaven = ["gserp[nodemaven]>=0.2.1"]
+cloak = ["gserp[cloak]>=0.2.1"]
+all = ["gserp[all]>=0.2.1"]
+dev = ["gserp[dev]>=0.2.1"]
 
 [project.scripts]
 google-browser-scraper = "google_browser_scraper:main"
