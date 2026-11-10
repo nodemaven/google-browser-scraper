@@ -1613,6 +1613,15 @@ class Scraper:
             delivered += bool(session.visit(url, self._rng.uniform(*s.dwell_seconds)))
             if _account_refusal(relay):
                 break  # every further page is refused too, each after a full timeout
+        if delivered:
+            # A warm-up page can navigate itself after the dwell (Trends does),
+            # which would interrupt the first search; leave it first.
+            try:
+                session.blank()
+            except Exception as exc:
+                self._emit(
+                    {"event": "blank_failed", "session": session_id, "error": describe_error(exc)}
+                )
         warm_bytes = relay.total if relay is not None else None
         return Identity(
             session_id,
