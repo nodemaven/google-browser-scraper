@@ -121,8 +121,19 @@ CLI, Python library, HTTP API, MCP server or Docker image. Traffic and cost per 
 Python 3.10 or newer, in a virtual environment:
 
 ```bash
-python3 -m venv gserp-env          # Windows: python -m venv gserp-env
-source gserp-env/bin/activate        # Windows: gserp-env\Scripts\activate
+python3 -m venv gserp-env
+source gserp-env/bin/activate
+pip install gserp
+patchright install chromium
+gserp doctor
+```
+
+In PowerShell:
+
+```powershell
+python -m venv gserp-env
+Set-ExecutionPolicy -Scope Process Bypass -Force   # lets this window run Activate.ps1
+gserp-env\Scripts\Activate.ps1
 pip install gserp
 patchright install chromium
 gserp doctor
@@ -289,6 +300,8 @@ is asked again on a fresh one.
 gserp serve --nodemaven --country us --prewarm
 curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 ```
+
+In PowerShell, call `curl.exe` (plain `curl` there is another command).
 
 - Same record format as above
 - `hl` (language) and `gl` (country) per request: `/search.json?q=...&hl=de&gl=at`
