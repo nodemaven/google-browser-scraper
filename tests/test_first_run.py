@@ -124,7 +124,15 @@ def _progress():
 def test_progress_explains_the_first_warm_up_once_and_counts_queries():
     out, p = _progress()
     p.on_event({"event": "warming", "pages": 6, "donor": False, "spare": False})
-    p.on_event({"event": "minted", "warm_pages": 6, "warm_bytes": 32 * 1024 * 1024, "seconds": 190})
+    p.on_event(
+        {
+            "event": "minted",
+            "warm_pages": 6,
+            "warm_delivered": 6,
+            "warm_bytes": 32 * 1024 * 1024,
+            "seconds": 190,
+        }
+    )
     p.on_event({"event": "query", "verdict": "sorry"})
     p.on_event({"event": "warming", "pages": 6, "donor": False, "spare": False})
     p.on_event({"event": "warming", "pages": 0, "donor": True, "spare": False})
@@ -209,3 +217,110 @@ def test_a_dropped_proxy_ip_is_explained_in_a_few_words():
         "  proxy IP dropped: the connection through it failed (ERR_SSL_PROTOCOL_ERROR); "
         "trying a new one"
     ]
+
+
+def test_dropped_proxy_ips_say_why_and_routine_ends_stay_quiet():
+    out, p = _progress()
+    for reason in (
+        "unreachable",
+        "poisoned",
+        "no_js",
+        "sorry",
+        "proxy: HTTP/1.1 407 Proxy Authentication Required",
+        "run finished",
+        "query cap reached",
+        "spare unused",
+        "http side off",
+    ):
+        p.on_event({"event": "retired", "reason": reason})
+    assert out.getvalue().splitlines() == [
+        "  proxy IP dropped: its warm-up pages did not load; trying a new one",
+        "  proxy IP dropped: Google answered with results for other queries; trying a new one",
+        "  proxy IP dropped: Google's answer was not a results page (no_js); trying a new one",
+    ]
+
+
+def test_a_warm_up_that_reached_nothing_is_not_reported_as_warmed_up():
+    out, p = _progress()
+    p.on_event({"event": "minted", "warm_pages": 6, "warm_delivered": 0, "seconds": 182})
+    p.on_event({"event": "minted", "warm_pages": 0, "donor": 0, "seconds": 3})
+    assert out.getvalue() == ""
+
+
+def test_concurrent_warm_ups_get_distinct_numbers_and_one_explanation():
+    import threading
+
+    out = io.StringIO()
+    p = Progress(out, total=1)
+    threads = [
+        threading.Thread(
+            target=p.on_event, args=({"event": "warming", "pages": 6, "donor": False},)
+        )
+        for _ in range(20)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    lines = out.getvalue().splitlines()
+    numbers = sorted(int(line.split()[2].rstrip(":")) for line in lines)
+    assert numbers == list(range(1, 21))
+    assert sum("ordinary pages" in line for line in lines) == 1
+
+
+def test_a_pool_worker_setup_error_is_one_line(monkeypatch, capsys):
+    from gserp.scraper import ExitsRefused
+
+    class FailedPool:
+        stats = type("Stats", (), {"summary": lambda self, price: {}})()
+
+        def __init__(self, make, workers):
+            pass
+
+        def run(self, queries):
+            raise ExitsRefused(
+                "worker 0 failed: BrowserType.launch_persistent_context: "
+                "Executable doesn't exist at /x/chrome"
+            )
+
+    monkeypatch.setattr(cli, "Pool", FailedPool)
+    assert cli.main(["search", "q", "--no-proxy", "--workers", "2"]) == 3
+    err = capsys.readouterr().err
+    assert "error: the browser is not installed" in err and "stopped:" not in err
+
+
+def test_plain_http_is_one_request_per_connection():
+    seen = []
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    def serve():
+        conn, _ = server.accept()
+        seen.append(conn.recv(4096).decode("latin-1"))
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        conn.close()
+
+    import threading
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+    relay = Relay(None)
+    address = relay.start()
+    try:
+        host, rport = address.removeprefix("http://").split(":")
+        with socket.create_connection((host, int(rport)), timeout=5) as sock:
+            sock.sendall(
+                f"GET http://127.0.0.1:{port}/x HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                "Connection: keep-alive\r\nKeep-Alive: timeout=30\r\n\r\n".encode()
+            )
+            answer = b""
+            while chunk := sock.recv(4096):
+                answer += chunk  # ends when the relay closes the connection
+    finally:
+        relay.stop()
+        server.close()
+    assert answer.endswith(b"ok")
+    head = seen[0].lower()
+    assert "connection: close" in head and "keep-alive" not in head

@@ -220,13 +220,23 @@ class Relay:
         self._pump(client, upstream, host)
 
     def _forward(self, client: socket.socket, head: str) -> None:
-        """Plain HTTP in absolute-URI form (revocation checks, http:// redirects)."""
+        """Plain HTTP in absolute-URI form (revocation checks, http:// redirects),
+        one request per connection."""
         target = urlsplit(head.split("\r\n", 1)[0].split(" ")[1])
         host = (target.hostname or "").lower()
         if self.is_blocked(host):
             self._refuse(client)
             return
-        lines = [ln for ln in head.split("\r\n") if not ln.lower().startswith("proxy-")]
+        # One request per connection: the browser may reuse a proxy connection
+        # for another host, and the next request would bypass the checks above
+        # and go to this host's server. `Connection: close` makes the server end
+        # it after the answer, so the browser opens a new one.
+        lines = [
+            ln
+            for ln in head.split("\r\n")
+            if not ln.lower().startswith(("proxy-", "connection:", "keep-alive:"))
+        ]
+        lines.insert(1, "Connection: close")
         try:
             if self._upstream_addr is None:
                 upstream = self._open(target.hostname, target.port or 80)

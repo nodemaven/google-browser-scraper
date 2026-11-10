@@ -416,7 +416,10 @@ def _search(args) -> int:
                 if progress is not None:
                     progress.record(record)
         except ExitsRefused as exc:
-            print(f"stopped: {exc}", file=sys.stderr)
+            # A pool worker that failed on setup (no browser, no display)
+            # arrives wrapped here; its fix is one line too.
+            if not hints.report(exc):
+                print(f"stopped: {exc}", file=sys.stderr)
             code = 3
         finally:
             writer.close()

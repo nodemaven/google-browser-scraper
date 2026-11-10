@@ -133,7 +133,7 @@ In PowerShell:
 ```powershell
 python -m venv gserp-env
 Set-ExecutionPolicy -Scope Process Bypass -Force   # lets this window run Activate.ps1
-gserp-env\Scripts\Activate.ps1
+.\gserp-env\Scripts\Activate.ps1
 pip install gserp
 patchright install chromium
 gserp doctor

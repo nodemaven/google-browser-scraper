@@ -84,6 +84,8 @@ class Worker:
     ) -> None:
         self._make = make_scraper
         self._prewarm = prewarm
+        #: Whether a prewarm was asked for; `ready` is set once it is over.
+        self.prewarming = prewarm
         self._log = log or (lambda message: print(message, file=sys.stderr))
         self._jobs: queue.Queue = queue.Queue()
         self._thread = threading.Thread(target=self._loop, name="gbs-worker", daemon=True)
@@ -521,7 +523,7 @@ def serve(worker: Worker, *, host: str, port: int, max_pages: int = 3) -> None:
         (host, port), make_handler(worker, api_key=api_key, max_pages=max_pages)
     )
     print(f"listening on http://{host}:{server.server_port}/search.json?q=...", file=sys.stderr)
-    if not worker.ready.is_set():
+    if worker.prewarming and not worker.ready.is_set():
         print(
             "warming up a proxy IP before the first request (--prewarm); this takes a "
             "few minutes, and /health answers 503 until it is done",

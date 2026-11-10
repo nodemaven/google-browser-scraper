@@ -29,6 +29,25 @@ def _duration(seconds: float) -> str:
     return f"{hours} h {minutes} min"
 
 
+#: Retire reasons that need no line: routine ends, refusals already reported
+#: by the query that met them, and a proxy refusal, which stops the run with
+#: its own error.
+QUIET = frozenset({"run finished", "query cap reached", "spare unused", "http side off"})
+
+
+def _retire_reason(reason: str) -> str | None:
+    """What to tell a person about a dropped proxy IP, or None to say nothing."""
+    if reason in QUIET or reason in REFUSED or reason.startswith("proxy"):
+        return None
+    if reason == "unreachable":
+        return "its warm-up pages did not load"
+    if reason == "poisoned":
+        return "Google answered with results for other queries"
+    if reason.startswith("error"):
+        return _why(reason)
+    return f"Google's answer was not a results page ({reason})"
+
+
 def _why(reason: str) -> str:
     """A retire reason in a few words: the network error code when there is one."""
     code = re.search(r"net::(ERR_[A-Z_]+)", reason)
@@ -61,7 +80,7 @@ class Progress:
         self._breaker = breaker
         self._clock = clock
         self._started = clock()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._done = 0
         self._ips = 0
         self._explained = False
@@ -71,39 +90,47 @@ class Progress:
             print(line, file=self._stream, flush=True)
 
     def on_event(self, event: dict[str, Any]) -> None:
+        # Pool workers and spare warmers call this from their own threads; the
+        # counter and the one-time explanation change under the same lock.
+        with self._lock:
+            line = self._line(event)
+            if line:
+                print(line, file=self._stream, flush=True)
+
+    def _line(self, event: dict[str, Any]) -> str | None:
         kind = event.get("event")
         if kind == "warming":
             self._ips += 1
             if event.get("spare"):
-                self._say(f"proxy IP {self._ips}: warming up in the background as a spare")
-            elif event.get("donor"):
-                self._say(f"proxy IP {self._ips}: starting from cookies Google already accepts")
-            elif event.get("pages"):
-                if not self._explained:
-                    self._explained = True
-                    self._say(
-                        f"proxy IP {self._ips}: warming up the browser on {event['pages']} "
-                        "ordinary pages before the first search. This takes a few minutes; "
-                        "later proxy IPs start from its cookies and skip it."
-                    )
-                else:
-                    self._say(f"proxy IP {self._ips}: warming up (a few minutes)")
-            else:
-                self._say(f"proxy IP {self._ips}: starting the browser")
-        elif kind == "minted" and event.get("warm_pages") and not event.get("donor"):
-            self._say(
+                return f"proxy IP {self._ips}: warming up in the background as a spare"
+            if event.get("donor"):
+                return f"proxy IP {self._ips}: starting from cookies Google already accepts"
+            if not event.get("pages"):
+                return f"proxy IP {self._ips}: starting the browser"
+            if self._explained:
+                return f"proxy IP {self._ips}: warming up (a few minutes)"
+            self._explained = True
+            return (
+                f"proxy IP {self._ips}: warming up the browser on {event['pages']} "
+                "ordinary pages before the first search. This takes a few minutes; "
+                "later proxy IPs start from its cookies and skip it."
+            )
+        if kind == "minted":
+            if event.get("donor") is not None or not event.get("warm_delivered"):
+                return None  # no warm-up, or one that reached nothing (reported on retire)
+            return (
                 f"  warmed up in {_duration(event.get('seconds') or 0)}, "
                 f"{_mb((event.get('warm_bytes') or 0) / (1024 * 1024))}"
             )
-        elif kind == "query" and event.get("verdict") in REFUSED:
-            self._say(
+        if kind == "query" and event.get("verdict") in REFUSED:
+            return (
                 f"  Google refused this proxy IP ({event['verdict']}); trying a new one. "
                 f"This is normal; the run stops after {self._breaker} in a row."
             )
-        elif kind == "retired":
-            reason = str(event.get("reason") or "")
-            if reason.startswith("error") or reason.startswith("proxy"):
-                self._say(f"  proxy IP dropped: {_why(reason)}; trying a new one")
+        if kind == "retired":
+            why = _retire_reason(str(event.get("reason") or ""))
+            return f"  proxy IP dropped: {why}; trying a new one" if why else None
+        return None
 
     def record(self, record: dict[str, Any]) -> None:
         meta = record.get("search_metadata") or {}
