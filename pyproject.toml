@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "serpmaven"
-version = "0.3.0"
+version = "0.2.2"
 description = "SERP Maven: self-hosted SERP API. Search results as JSON from a real Chrome browser through your own residential proxy. HTTP API, CLI and MCP server."
 readme = "README.md"
 license = { text = "MIT" }

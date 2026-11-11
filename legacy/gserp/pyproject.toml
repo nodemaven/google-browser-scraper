@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gserp"
-version = "0.3.0"
+version = "0.2.2"
 description = "Renamed to serpmaven (SERP Maven). Installing this installs serpmaven and keeps the old command and import working."
 readme = "README.md"
 license = "MIT"
@@ -19,13 +19,13 @@ classifiers = [
     "Development Status :: 7 - Inactive",
     "Programming Language :: Python :: 3",
 ]
-dependencies = ["serpmaven>=0.3.0"]
+dependencies = ["serpmaven>=0.2.2"]
 
 [project.optional-dependencies]
-nodemaven = ["serpmaven[nodemaven]>=0.3.0"]
-cloak = ["serpmaven[cloak]>=0.3.0"]
-all = ["serpmaven[all]>=0.3.0"]
-dev = ["serpmaven[dev]>=0.3.0"]
+nodemaven = ["serpmaven[nodemaven]>=0.2.2"]
+cloak = ["serpmaven[cloak]>=0.2.2"]
+all = ["serpmaven[all]>=0.2.2"]
+dev = ["serpmaven[dev]>=0.2.2"]
 
 [project.scripts]
 gserp = "gserp:main"
