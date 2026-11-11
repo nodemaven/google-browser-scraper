@@ -117,3 +117,21 @@ def test_an_old_command_names_itself_in_usage(legacy):
     command = {"gserp": "gserp", "google_browser_scraper": "google-browser-scraper"}[legacy]
     assert out.returncode == 2
     assert out.stderr.startswith(f"usage: {command} ")
+
+
+def test_released_google_browser_scraper_0_2_x_works_over_the_new_gserp(monkeypatch):
+    # google-browser-scraper 0.2.0/0.2.1 import gserp and list its modules from
+    # gserp.__path__; someone who upgrades only gserp must not break it.
+    released = Path(__file__).resolve().parent / "data" / "google_browser_scraper_021"
+    monkeypatch.syspath_prepend(str(OLD_NAMES["gserp"]))
+    monkeypatch.syspath_prepend(str(released))
+    for module in list(sys.modules):
+        if module.split(".")[0] in ("gserp", "google_browser_scraper"):
+            monkeypatch.delitem(sys.modules, module)
+    import serpmaven
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        old = importlib.import_module("google_browser_scraper")
+    assert old.Scraper is serpmaven.Scraper
+    assert importlib.import_module("google_browser_scraper.scraper") is serpmaven.scraper

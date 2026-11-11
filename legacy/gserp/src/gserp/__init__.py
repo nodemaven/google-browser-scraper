@@ -37,6 +37,11 @@ for _name in MODULES:
     # function exported under the same name (`classify` is both).
     setattr(sys.modules[__name__], _name, getattr(serpmaven, _name, _module))
 
+# Released google-browser-scraper 0.2.x imports gserp and lists its modules
+# through `gserp.__path__`; with serpmaven's folder on it, that list is
+# serpmaven's modules, each already aliased above.
+__path__.extend(serpmaven.__path__)  # noqa: F405 - a package always has __path__
+
 
 def main() -> int:
     """The old command, `gserp`: the `serpmaven` CLI."""
