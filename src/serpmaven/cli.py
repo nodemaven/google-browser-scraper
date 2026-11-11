@@ -23,10 +23,12 @@ from .scraper import DIRECT_MODES, RENEW_EVERY, ExitsRefused, Scraper, Settings
 from .server import locale_problem
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str = "serpmaven") -> int:
+    """The command line; `prog` is the command name shown in usage and errors
+    (the old names pass their own)."""
     use_utf8(sys.stdout)
     use_utf8(sys.stderr, errors="backslashreplace")
-    parser = _parser()
+    parser = _parser(prog)
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
         parser.print_help()
@@ -43,9 +45,9 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(prog: str = "serpmaven") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="serpmaven",
+        prog=prog,
         description="Google results from a real browser through your own proxy.",
     )
     parser.add_argument("--version", action="version", version=__version__)

@@ -103,3 +103,17 @@ def test_an_old_module_runs_the_new_cli(legacy):
         check=True,
     )
     assert out.stdout.strip() == serpmaven.__version__
+
+
+def test_an_old_command_names_itself_in_usage(legacy):
+    src = Path(__file__).resolve().parent.parent / "src"
+    path = os.pathsep.join([str(OLD_NAMES[legacy]), str(src)])
+    out = subprocess.run(
+        [sys.executable, "-W", "ignore", "-m", legacy, "--no-such-option"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": path},
+    )
+    command = {"gserp": "gserp", "google_browser_scraper": "google-browser-scraper"}[legacy]
+    assert out.returncode == 2
+    assert out.stderr.startswith(f"usage: {command} ")

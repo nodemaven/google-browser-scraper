@@ -6,6 +6,12 @@ This project was renamed to [serpmaven](https://pypi.org/project/serpmaven/) (SE
 pip install serpmaven
 ```
 
+To keep the old names, install this package instead; it installs serpmaven too:
+
+```
+pip install google-browser-scraper
+```
+
 Installing `google-browser-scraper` installs `serpmaven` and keeps the old names
 working: the `google-browser-scraper` command, `import google_browser_scraper`
 (with a deprecation warning) and the `GBS_*` environment variables. New code

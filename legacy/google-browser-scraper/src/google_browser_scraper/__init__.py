@@ -42,7 +42,7 @@ def main() -> int:
     """The old command, `google-browser-scraper`: the `serpmaven` CLI."""
     from serpmaven.cli import main as serpmaven_main
 
-    return serpmaven_main()
+    return serpmaven_main(prog="google-browser-scraper")
 
 
 del _name, _module, serpmaven
