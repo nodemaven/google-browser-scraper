@@ -1,10 +1,10 @@
-# gserp: headful Chromium on a virtual display, serving the
+# serpmaven: headful Chromium on a virtual display, serving the
 # HTTP search API on port 8000 by default.
 #
-#   docker build -t gserp .
-#   docker run --rm gserp doctor
-#   docker run --rm -p 8000:8000 -e GSERP_API_KEY=... -e GSERP_PROXY='http://u-{session}:p@host:port' \
-#       gserp serve --host 0.0.0.0
+#   docker build -t serpmaven .
+#   docker run --rm serpmaven doctor
+#   docker run --rm -p 8000:8000 -e SERPMAVEN_API_KEY=... -e SERPMAVEN_PROXY='http://u-{session}:p@host:port' \
+#       serpmaven serve --host 0.0.0.0
 #
 # Headful on purpose: headless builds announce HeadlessChrome. A real display is
 # replaced by Xvfb at 1920x1080x24, not Xvfb's small default, because the screen
@@ -21,9 +21,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     DISPLAY=:99
 
-# WebGL through SwiftShader, as there is no GPU. Under the old name on
-# purpose: GSERP_BROWSER_ARGS is read first, so either name given to the
-# container overrides it, and `docker exec` sees it too.
+# WebGL through SwiftShader, as there is no GPU. Under the oldest name on
+# purpose: SERPMAVEN_BROWSER_ARGS (and GSERP_BROWSER_ARGS) are read first, so
+# either given to the container overrides it, and `docker exec` sees it too.
 ENV GBS_BROWSER_ARGS="--enable-unsafe-swiftshader"
 
 RUN apt-get update \

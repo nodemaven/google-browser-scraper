@@ -1,21 +1,21 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/nodemaven/gserp/main/assets/banner.png" alt="GSERP">
+<img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/banner.png" alt="SERP Maven">
 
-<h1>GSERP</h1>
+<h1>SERP Maven</h1>
 
 <p><b>Self-hosted SERP API alternative: search results from a real Chrome browser and your own residential proxy.</b></p>
 
-<p><code>pip install gserp</code>. Formerly <code>google-browser-scraper</code>: that package now installs gserp, and the old command, import and <code>GBS_*</code> variables keep working.</p>
+<p><code>pip install serpmaven</code>. Formerly <code>gserp</code> and <code>google-browser-scraper</code>: both now install serpmaven, and their old commands, imports and <code>GSERP_*</code> / <code>GBS_*</code> variables keep working.</p>
 
-[![pypi](https://img.shields.io/pypi/v/gserp?style=flat-square&cacheSeconds=3600)](https://pypi.org/project/gserp/)
-[![python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://pypi.org/project/gserp/)
-[![tests](https://img.shields.io/github/actions/workflow/status/nodemaven/gserp/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/nodemaven/gserp/actions/workflows/ci.yml)
-[![license](https://img.shields.io/pypi/l/gserp?style=flat-square&cacheSeconds=3600)](https://opensource.org/licenses/MIT)
-[![docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/nodemaven/gserp/pkgs/container/gserp)
+[![pypi](https://img.shields.io/pypi/v/serpmaven?style=flat-square&cacheSeconds=3600)](https://pypi.org/project/serpmaven/)
+[![python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://pypi.org/project/serpmaven/)
+[![tests](https://img.shields.io/github/actions/workflow/status/nodemaven/serpmaven/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/nodemaven/serpmaven/actions/workflows/ci.yml)
+[![license](https://img.shields.io/pypi/l/serpmaven?style=flat-square&cacheSeconds=3600)](https://opensource.org/licenses/MIT)
+[![docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/nodemaven/serpmaven/pkgs/container/serpmaven)
 [![2 GB free with code GOOGLENM](https://img.shields.io/badge/%F0%9F%8E%81%202%20GB%20free-code%20GOOGLENM-1153FC?style=flat-square)](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=promo_badge)
 
-<a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="GSERP on DevHunt" height="44"></a>
+<a href="https://devhunt.org/tool/google-search-scraper"><img src="https://devhunt.org/badge/google-search-scraper.svg" alt="SERP Maven on DevHunt" height="44"></a>
 
 [Quickstart](#quickstart) · [Output](#what-you-get) · [Poisoned results](#poisoned-results-protection) · [HTTP API](#run-it-as-an-api) · [MCP](#use-it-from-an-ai-agent-mcp) · [Docker](#docker) · [How it works](#how-it-works) · [Options](#options)
 
@@ -24,7 +24,7 @@
 <br>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nodemaven/gserp/main/assets/demo.gif" alt="A real Chrome window showing Google results next to the JSON the scraper produced for them" width="900">
+  <img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/demo.gif" alt="A real Chrome window showing Google results next to the JSON the scraper produced for them" width="900">
 </p>
 
 <div align="center">
@@ -121,22 +121,22 @@ CLI, Python library, HTTP API, MCP server or Docker image. Traffic and cost per 
 Python 3.10 or newer, in a virtual environment:
 
 ```bash
-python3 -m venv gserp-env
-source gserp-env/bin/activate
-pip install gserp
+python3 -m venv serpmaven-env
+source serpmaven-env/bin/activate
+pip install serpmaven
 patchright install chromium
-gserp doctor
+serpmaven doctor
 ```
 
 In PowerShell:
 
 ```powershell
-python -m venv gserp-env
+python -m venv serpmaven-env
 Set-ExecutionPolicy -Scope Process Bypass -Force   # lets this window run Activate.ps1
-.\gserp-env\Scripts\Activate.ps1
-pip install gserp
+.\serpmaven-env\Scripts\Activate.ps1
+pip install serpmaven
 patchright install chromium
-gserp doctor
+serpmaven doctor
 ```
 
 `doctor` ends with `ready` when the browser starts and looks like a desktop.
@@ -151,9 +151,9 @@ software WebGL when there is no GPU:
 
 ```bash
 sudo apt install xvfb
-sudo gserp-env/bin/patchright install-deps chromium
-export GSERP_BROWSER_ARGS=--enable-unsafe-swiftshader
-xvfb-run -a gserp doctor
+sudo serpmaven-env/bin/patchright install-deps chromium
+export SERPMAVEN_BROWSER_ARGS=--enable-unsafe-swiftshader
+xvfb-run -a serpmaven doctor
 ```
 
 Then start every command with `xvfb-run -a`. The [Docker image](#docker) has
@@ -168,7 +168,7 @@ all of this built in.
 > your provider expects a session id in the username.
 
 ```bash
-gserp search "best running shoes" --proxy "http://USER-session-{session}:PASS@gate.example.com:7000" -o results.jsonl
+serpmaven search "best running shoes" --proxy "http://USER-session-{session}:PASS@gate.example.com:7000" -o results.jsonl
 ```
 
 The first query takes a few minutes while the first proxy IP warms up on a few
@@ -181,19 +181,19 @@ the traffic used, warm-up apart from the pages.
 The session id is handled for you and the credentials come from the environment:
 
 ```bash
-pip install "gserp[nodemaven]"
+pip install "serpmaven[nodemaven]"
 export NODEMAVEN_LOGIN=... NODEMAVEN_PASSWORD=...
 printf "best running shoes\nhow to boil eggs\n" > queries.txt
-gserp search -f queries.txt --nodemaven --country us -o results.jsonl
+serpmaven search -f queries.txt --nodemaven --country us -o results.jsonl
 ```
 
 In PowerShell:
 
 ```powershell
-pip install "gserp[nodemaven]"
+pip install "serpmaven[nodemaven]"
 $env:NODEMAVEN_LOGIN = "..."; $env:NODEMAVEN_PASSWORD = "..."
 Set-Content queries.txt "best running shoes", "how to boil eggs"
-gserp search -f queries.txt --nodemaven --country us -o results.jsonl
+serpmaven search -f queries.txt --nodemaven --country us -o results.jsonl
 ```
 
 > [!TIP]
@@ -211,7 +211,7 @@ keeps it). The account needs sub-users enabled. A fresh warm-up alone uses about
 
 ```bash
 export NODEMAVEN_API_KEY=...
-gserp search -f queries.txt --nodemaven-demo --traffic-limit-mb 300 -o results.jsonl
+serpmaven search -f queries.txt --nodemaven-demo --traffic-limit-mb 300 -o results.jsonl
 ```
 
 </details>
@@ -222,7 +222,7 @@ gserp search -f queries.txt --nodemaven-demo --traffic-limit-mb 300 -o results.j
 <br>
 
 ```bash
-gserp search "best running shoes" --no-proxy
+serpmaven search "best running shoes" --no-proxy
 ```
 
 Google then sees one address for every query, so it starts answering with
@@ -234,7 +234,7 @@ captchas sooner than it would across a pool of proxy IPs. Those pages come back 
 ### From Python
 
 ```python
-from gserp import ProxyTemplate, Scraper, Settings
+from serpmaven import ProxyTemplate, Scraper, Settings
 
 proxy = ProxyTemplate("http://USER-session-{session}:PASS@gate.example.com:7000")
 for page in Scraper(proxy, Settings(pages=2)).run(["best running shoes"]):
@@ -297,7 +297,7 @@ is asked again on a fresh one.
 ## Run it as an API
 
 ```bash
-gserp serve --nodemaven --country us --prewarm
+serpmaven serve --nodemaven --country us --prewarm
 curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 ```
 
@@ -310,7 +310,7 @@ In PowerShell, call `curl.exe` (plain `curl` there is another command).
 - `links=N` resolves the links of the first N organic results only (`0`: none)
 - `links_wait=S` answers after S seconds with the links resolved by then; links still being resolved are `null` and counted in `search_metadata.links_pending`
 - `async=true` answers at once with `search_metadata.id`; `GET /searches/<id>.json` answers `"status": "Processing"` until the search and its links are done, then the record. The newest 500 searches are kept there, each for up to an hour; up to 50 async searches wait for the browser at once, more are answered 429
-- Set `GSERP_API_KEY` to require a key; without one the server only listens on localhost
+- Set `SERPMAVEN_API_KEY` to require a key; without one the server only listens on localhost
 
 ## Use it from an AI agent (MCP)
 
@@ -318,7 +318,7 @@ In PowerShell, call `curl.exe` (plain `curl` there is another command).
 {
   "mcpServers": {
     "google-search": {
-      "command": "gserp",
+      "command": "serpmaven",
       "args": ["mcp", "--nodemaven", "--country", "us", "--prewarm"],
       "env": {"NODEMAVEN_LOGIN": "...", "NODEMAVEN_PASSWORD": "..."}
     }
@@ -335,13 +335,13 @@ Google shows them.
 A ready image is published to GitHub Container Registry with every release:
 
 ```bash
-docker run --rm ghcr.io/nodemaven/gserp doctor
-docker run --rm -p 8000:8000 -e GSERP_API_KEY=change-me \
-  -e GSERP_PROXY='http://USER-session-{session}:PASS@gate.example.com:7000' \
-  ghcr.io/nodemaven/gserp serve --host 0.0.0.0
+docker run --rm ghcr.io/nodemaven/serpmaven doctor
+docker run --rm -p 8000:8000 -e SERPMAVEN_API_KEY=change-me \
+  -e SERPMAVEN_PROXY='http://USER-session-{session}:PASS@gate.example.com:7000' \
+  ghcr.io/nodemaven/serpmaven serve --host 0.0.0.0
 ```
 
-To build it yourself: `docker build -t gserp .`
+To build it yourself: `docker build -t serpmaven .`
 
 ## How it works
 
@@ -458,7 +458,7 @@ The defaults come from measurements in
 | `--save-html DIR` | | Keep every page's HTML, gzipped |
 
 `-v` prints every step as JSON instead, and the summary as one JSON line.
-`gserp search --help` lists the rest.
+`serpmaven search --help` lists the rest.
 
 </details>
 
@@ -472,7 +472,7 @@ endpoint, because Chrome cannot send a SOCKS5 username and password.
 ## Check your machine
 
 ```bash
-gserp doctor
+serpmaven doctor
 ```
 
 Starts the browser on a blank page, sends nothing, and reports what a website
@@ -512,4 +512,4 @@ engine actually gets served, not whether it got lucky once.
 
 ## License
 
-[MIT](https://github.com/nodemaven/gserp/blob/main/LICENSE)
+[MIT](https://github.com/nodemaven/serpmaven/blob/main/LICENSE)

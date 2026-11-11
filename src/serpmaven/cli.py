@@ -23,10 +23,12 @@ from .scraper import DIRECT_MODES, RENEW_EVERY, ExitsRefused, Scraper, Settings
 from .server import locale_problem
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str = "serpmaven") -> int:
+    """The command line; `prog` is the command name shown in usage and errors
+    (the old names pass their own)."""
     use_utf8(sys.stdout)
     use_utf8(sys.stderr, errors="backslashreplace")
-    parser = _parser()
+    parser = _parser(prog)
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
         parser.print_help()
@@ -43,9 +45,9 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(prog: str = "serpmaven") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="gserp",
+        prog=prog,
         description="Google results from a real browser through your own proxy.",
     )
     parser.add_argument("--version", action="version", version=__version__)
@@ -111,7 +113,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     source.add_argument(
         "--proxy",
         help="proxy URL with a {session} placeholder for sticky sessions; "
-        "also read from GSERP_PROXY",
+        "also read from SERPMAVEN_PROXY",
     )
     source.add_argument(
         "--nodemaven",
@@ -241,7 +243,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         dest="browser_args",
-        help="extra Chromium switch, repeatable; also GSERP_BROWSER_ARGS",
+        help="extra Chromium switch, repeatable; also SERPMAVEN_BROWSER_ARGS",
     )
     p.add_argument(
         "--no-relay",
@@ -500,7 +502,7 @@ def _doctor(args) -> int:
     if any(c.status == FAIL for c in checks):
         print("not ready: fix the [fail] lines above first")
         return 1
-    print("ready: run gserp search with your proxy")
+    print("ready: run serpmaven search with your proxy")
     return 0
 
 

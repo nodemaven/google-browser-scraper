@@ -3,7 +3,7 @@ import types
 
 import pytest
 
-from gserp.proxy import NodeMavenDemoSource, ProxyTemplate, new_session_id
+from serpmaven.proxy import NodeMavenDemoSource, ProxyTemplate, new_session_id
 
 
 def test_session_placeholder_is_filled_per_identity():

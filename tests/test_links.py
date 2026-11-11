@@ -6,15 +6,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from gserp import links
-from gserp.links import (
+from serpmaven import links
+from serpmaven.links import (
     PING_BUDGET_S,
     LinkResolver,
     held_refresh,
     ping_destination,
     ping_paths,
 )
-from gserp.scraper import _fill_links
+from serpmaven.scraper import _fill_links
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -6,9 +6,9 @@ import tempfile
 import pages
 import pytest
 
-from gserp.browser import Fetched, results_url
-from gserp.proxy import ProxyTemplate
-from gserp.scraper import (
+from serpmaven.browser import Fetched, results_url
+from serpmaven.proxy import ProxyTemplate
+from serpmaven.scraper import (
     PREWARM_QUERIES,
     ExitsRefused,
     Pinned,
@@ -457,7 +457,7 @@ def test_unresolved_links_are_filled_by_the_resolver_on_a_session_of_its_own():
 
 
 def test_errors_are_one_line_with_credentials_masked():
-    from gserp.scraper import describe_error
+    from serpmaven.scraper import describe_error
 
     exc = RuntimeError("proxy http://user:secret@gate.example.com:7000 failed\nCall log: ...")
     text = describe_error(exc)
@@ -694,7 +694,7 @@ def test_clone_refusals_must_be_reachable():
 
 
 def test_a_template_past_its_age_is_not_used(monkeypatch):
-    import gserp.scraper as module
+    import serpmaven.scraper as module
 
     clock = iter(range(0, 10**6, 100))  # every reading is 100 s after the last
     monkeypatch.setattr(module.time, "monotonic", lambda: next(clock))
@@ -1090,7 +1090,7 @@ def test_no_restart_after_the_last_query_of_a_run():
 
 
 def test_a_refused_cache_copy_counts_after_the_template_was_renewed():
-    from gserp.scraper import Templates
+    from serpmaven.scraper import Templates
 
     events = []
     templates = Templates(copies=3, max_age=3600)
@@ -1144,7 +1144,7 @@ def test_prewarm_opens_one_page_and_resolves_no_links():
 
 
 def test_a_template_whose_folder_cannot_be_made_is_given_up_not_held(monkeypatch):
-    import gserp.scraper as module
+    import serpmaven.scraper as module
 
     real = tempfile.mkdtemp
 
@@ -1236,7 +1236,7 @@ def test_a_fake_browser_is_not_driven_by_the_hybrid():
 
 
 def test_with_the_hybrid_off_a_capable_browser_is_wrapped_only_to_resolve_links():
-    from gserp.hybrid import HybridSession
+    from serpmaven.hybrid import HybridSession
 
     class Capable:
         hybrid_capable = True
@@ -1252,7 +1252,7 @@ def test_with_the_hybrid_off_a_capable_browser_is_wrapped_only_to_resolve_links(
 
 
 def test_restart_every_counts_pages_the_browser_rendered_not_http_ones():
-    from gserp.browser import Fetched as F
+    from serpmaven.browser import Fetched as F
 
     http = F(SEARCH, 200, pages.results_page(), timings={"http": 0.4})
     s = scraper(
@@ -1547,7 +1547,7 @@ def test_a_set_with_an_empty_nid_is_not_taken_as_a_donor(tmp_path):
 
 
 def test_renewals_fill_slots_then_overwrite_the_oldest_and_the_newest_is_used():
-    from gserp.scraper import Donors
+    from serpmaven.scraper import Donors
 
     events = []
     sets = [({"name": "NID", "value": str(i), "domain": ".google.com"},) for i in range(4)]
@@ -1562,7 +1562,7 @@ def test_renewals_fill_slots_then_overwrite_the_oldest_and_the_newest_is_used():
 
 
 def test_an_exit_renewing_again_replaces_its_own_set():
-    from gserp.scraper import Donors
+    from serpmaven.scraper import Donors
 
     a, b = (({"name": "NID", "value": v, "domain": ".google.com"},) for v in "ab")
     d = Donors((), slots=3)
@@ -1572,7 +1572,7 @@ def test_an_exit_renewing_again_replaces_its_own_set():
 
 
 def test_refusals_of_exits_from_a_replaced_set_do_not_count_against_the_new_one():
-    from gserp.scraper import Donors
+    from serpmaven.scraper import Donors
 
     s0, s1, fresh = (({"name": "NID", "value": v, "domain": ".google.com"},) for v in "01f")
     d = Donors((s0, s1), slots=2)
@@ -1587,7 +1587,7 @@ def test_refusals_of_exits_from_a_replaced_set_do_not_count_against_the_new_one(
 
 
 def test_a_set_that_cannot_be_written_is_still_used(tmp_path):
-    from gserp.scraper import Donors
+    from serpmaven.scraper import Donors
 
     blocked = tmp_path / "not-a-dir"
     blocked.write_text("x", encoding="utf-8")
@@ -1600,7 +1600,7 @@ def test_a_set_that_cannot_be_written_is_still_used(tmp_path):
 
 @pytest.mark.skipif(os.name != "posix", reason="file modes are POSIX")
 def test_a_written_set_is_readable_by_its_owner_only(tmp_path):
-    from gserp.scraper import Donors
+    from serpmaven.scraper import Donors
 
     # Files left at the paths, readable by anyone, do not pass their mode on.
     for name in ("donor_0.json", "donor_0.json.tmp"):
@@ -1611,14 +1611,14 @@ def test_a_written_set_is_readable_by_its_owner_only(tmp_path):
 
 
 def test_a_written_set_leaves_no_temporary_file(tmp_path):
-    from gserp.scraper import Donors
+    from serpmaven.scraper import Donors
 
     Donors((), out=str(tmp_path)).renew(DONOR, "exit0", lambda e: None)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["donor_0.json"]
 
 
 def test_the_least_recently_renewed_set_is_the_one_overwritten():
-    from gserp.scraper import Donors
+    from serpmaven.scraper import Donors
 
     a, b, a2, c = (({"name": "NID", "value": v, "domain": ".google.com"},) for v in "abAc")
     d = Donors((), slots=2)
@@ -1795,7 +1795,7 @@ def test_a_negative_links_is_refused_before_a_query():
 def test_start_search_reads_no_more_pages_while_max_held_pages_wait_for_links():
     import threading
 
-    from gserp.scraper import MAX_HELD
+    from serpmaven.scraper import MAX_HELD
 
     s = _gated([[SERVED] * (MAX_HELD + 1)])
     try:
@@ -1818,7 +1818,7 @@ def test_the_hold_on_pages_waiting_for_links_applies_between_pages_of_one_query(
     import threading
     import time
 
-    from gserp.scraper import MAX_HELD
+    from serpmaven.scraper import MAX_HELD
 
     assert MAX_HELD == 8  # the page counts below assume it
     settings = Settings(pages=3, gap_seconds=(0, 0), dwell_seconds=(0, 0))

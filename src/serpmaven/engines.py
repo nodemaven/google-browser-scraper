@@ -26,7 +26,7 @@ class CloakSession(BrowserSession):
         try:
             import cloakbrowser
         except ImportError as exc:
-            raise RuntimeError("the cloak engine needs: pip install 'gserp[cloak]'") from exc
+            raise RuntimeError("the cloak engine needs: pip install 'serpmaven[cloak]'") from exc
         # `viewport=None` reports the real window, the same choice as
         # `no_viewport=True` on patchright. Closing the context stops Playwright.
         return cloakbrowser.launch_persistent_context(

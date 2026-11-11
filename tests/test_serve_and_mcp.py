@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from gserp.mcp import McpServer, compact
-from gserp.scraper import ExitsRefused, PendingLinks, Settings, Stats
-from gserp.server import Archive, Worker, make_handler
+from serpmaven.mcp import McpServer, compact
+from serpmaven.scraper import ExitsRefused, PendingLinks, Settings, Stats
+from serpmaven.server import Archive, Worker, make_handler
 
 
 def record(query, page=1, error=None):
@@ -249,11 +249,12 @@ def test_tripped_breaker_is_a_503_and_is_reset_for_the_next_request(monkeypatch)
 
 
 def test_serve_refuses_a_public_address_without_a_key(monkeypatch):
-    from gserp import server
+    from serpmaven import server
 
+    monkeypatch.delenv("SERPMAVEN_API_KEY", raising=False)
     monkeypatch.delenv("GSERP_API_KEY", raising=False)
     monkeypatch.delenv("GBS_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="GSERP_API_KEY"):
+    with pytest.raises(ValueError, match="SERPMAVEN_API_KEY"):
         server.serve(None, host="0.0.0.0", port=0)
 
 
@@ -382,9 +383,15 @@ def test_a_worker_that_died_fails_calls_at_once():
 
 @pytest.mark.parametrize("argv", [["mcp", "--nodemaven"], ["serve"]])
 def test_serve_and_mcp_exit_on_a_bad_setup(argv, monkeypatch, capsys):
-    from gserp.cli import main
+    from serpmaven.cli import main
 
-    for name in ("NODEMAVEN_LOGIN", "NODEMAVEN_PASSWORD", "GSERP_PROXY", "GBS_PROXY"):
+    for name in (
+        "NODEMAVEN_LOGIN",
+        "NODEMAVEN_PASSWORD",
+        "SERPMAVEN_PROXY",
+        "GSERP_PROXY",
+        "GBS_PROXY",
+    ):
         monkeypatch.delenv(name, raising=False)
     assert main(argv) == 1
     assert capsys.readouterr().err.startswith("error: ")
@@ -427,7 +434,7 @@ def test_parse_writes_utf8_when_piped(tmp_path):
         "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
     }
     done = subprocess.run(
-        [sys.executable, "-m", "gserp", "parse", str(page)],
+        [sys.executable, "-m", "serpmaven", "parse", str(page)],
         capture_output=True,
         env=env,
         timeout=60,
@@ -483,7 +490,7 @@ def test_stop_skips_queued_upkeep_and_closes_the_scraper():
 
 
 def test_compact_carries_the_first_ai_overview():
-    from gserp.mcp import compact
+    from serpmaven.mcp import compact
 
     records = [
         {"organic_results": [], "ai_overview": {"text": "Page one answer."}},
@@ -494,7 +501,7 @@ def test_compact_carries_the_first_ai_overview():
 
 
 def test_compact_carries_the_map_places():
-    from gserp.mcp import compact
+    from serpmaven.mcp import compact
 
     place = {
         "position": 1,
@@ -695,7 +702,7 @@ def _busy(worker):
 
 
 def test_a_search_that_times_out_in_the_queue_never_runs(api, worker, monkeypatch):
-    from gserp import server
+    from serpmaven import server
 
     monkeypatch.setattr(server, "REQUEST_TIMEOUT_S", 0.3)
     release = _busy(worker)
@@ -709,7 +716,7 @@ def test_a_search_that_times_out_in_the_queue_never_runs(api, worker, monkeypatc
 
 
 def test_async_searches_waiting_at_once_are_bounded(api, worker, monkeypatch):
-    from gserp import server
+    from serpmaven import server
 
     monkeypatch.setattr(server, "ASYNC_QUEUED_MAX", 1)
     base = api()

@@ -1,9 +1,12 @@
-# Publish the old name, `google-browser-scraper`, to PyPI from `legacy/`.
+# Publish the old names, `gserp` and `google-browser-scraper`, to PyPI from
+# `legacy/`.
 #
-# The package holds no code: it depends on `gserp` at the same version and keeps
-# the old command and import working. It is released from the same published
-# GitHub release as `gserp` (see publish.yml), through its own Trusted Publisher
-# entry on PyPI, which names this file and the `pypi` environment.
+# Each package is a thin compatibility layer: it depends on `serpmaven` at the
+# same version or newer, and its own code only aliases the old import, command
+# and `python -m` to serpmaven. They are released from the same
+# published GitHub release as `serpmaven` (see publish.yml), through their own
+# Trusted Publisher entries on PyPI, which name this file and the `pypi`
+# environment.
 name: publish-legacy
 
 on:
@@ -25,33 +28,34 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade build twine
-      - run: python -m build legacy --outdir dist
+      - run: python -m build legacy/gserp --outdir dist
+      - run: python -m build legacy/google-browser-scraper --outdir dist
       - run: python -m twine check dist/*
       - uses: actions/upload-artifact@v4
         with:
           name: dist-legacy
           path: dist/
 
-  # The package depends on gserp, which publish.yml uploads from the same release
-  # in a separate workflow. Wait until that version is on PyPI, so nobody can
-  # install the old name while its dependency is missing.
-  wait-for-gserp:
+  # Both packages depend on serpmaven, which publish.yml uploads from the same
+  # release in a separate workflow. Wait until that version is on PyPI, so
+  # nobody can install an old name while its dependency is missing.
+  wait-for-serpmaven:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Wait for gserp ${{ github.event.release.tag_name }} on PyPI
+      - name: Wait for serpmaven ${{ github.event.release.tag_name }} on PyPI
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           version="${TAG#v}"
-          until curl -sf -o /dev/null "https://pypi.org/pypi/gserp/${version}/json"; do
-            echo "gserp ${version} not on PyPI yet"
+          until curl -sf -o /dev/null "https://pypi.org/pypi/serpmaven/${version}/json"; do
+            echo "serpmaven ${version} not on PyPI yet"
             sleep 30
           done
 
   publish:
-    needs: wait-for-gserp
+    needs: wait-for-serpmaven
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

@@ -14,7 +14,7 @@ NO_BROWSER = (
 NO_DISPLAY = (
     "no display found, and the browser runs with a window. On a Linux server "
     "run it under a virtual display: sudo apt install xvfb, then "
-    "xvfb-run -a gserp ... (add GSERP_BROWSER_ARGS=--enable-unsafe-swiftshader "
+    "xvfb-run -a serpmaven ... (add SERPMAVEN_BROWSER_ARGS=--enable-unsafe-swiftshader "
     "for WebGL), or use the Docker image, which has both"
 )
 NO_SYSTEM_LIBS = (

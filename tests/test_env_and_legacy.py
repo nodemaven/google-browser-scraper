@@ -7,9 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from gserp import env
+from serpmaven import env
 
-LEGACY_SRC = Path(__file__).resolve().parent.parent / "legacy" / "src"
+LEGACY = Path(__file__).resolve().parent.parent / "legacy"
+#: The old import names and the folder of the package that provides each.
+OLD_NAMES = {
+    "gserp": LEGACY / "gserp" / "src",
+    "google_browser_scraper": LEGACY / "google-browser-scraper" / "src",
+}
 
 
 @pytest.fixture
@@ -19,19 +24,22 @@ def clean_env(monkeypatch):
     return monkeypatch
 
 
-def test_the_new_name_wins_and_the_old_one_is_still_read(clean_env):
+def test_the_new_name_wins_and_the_old_ones_are_still_read(clean_env):
     assert env.get("PROXY") is None
     assert env.get("PROXY", "x") == "x"
-    clean_env.setenv("GBS_PROXY", "old")
+    clean_env.setenv("GBS_PROXY", "oldest")
+    assert env.get("PROXY") == "oldest"
+    clean_env.setenv("GSERP_PROXY", "old")
     assert env.get("PROXY") == "old"
-    clean_env.setenv("GSERP_PROXY", "new")
+    clean_env.setenv("SERPMAVEN_PROXY", "new")
     assert env.get("PROXY") == "new"
-    clean_env.setenv("GSERP_PROXY", "")
+    clean_env.setenv("SERPMAVEN_PROXY", "")
     assert env.get("PROXY") == "old"
 
 
-def test_the_old_api_key_name_still_lets_serve_listen_publicly(monkeypatch):
-    from gserp import server
+@pytest.mark.parametrize("old", ["GSERP_API_KEY", "GBS_API_KEY"])
+def test_an_old_api_key_name_still_lets_serve_listen_publicly(old, monkeypatch):
+    from serpmaven import server
 
     class Listening(Exception):
         pass
@@ -39,54 +47,91 @@ def test_the_old_api_key_name_still_lets_serve_listen_publicly(monkeypatch):
     def listen(*args, **kwargs):
         raise Listening
 
-    monkeypatch.delenv("GSERP_API_KEY", raising=False)
-    monkeypatch.setenv("GBS_API_KEY", "k")
+    for prefix in env.PREFIXES:
+        monkeypatch.delenv(prefix + "API_KEY", raising=False)
+    monkeypatch.setenv(old, "k")
     monkeypatch.setattr(server, "ThreadingHTTPServer", listen)
     with pytest.raises(Listening):
         server.serve(None, host="0.0.0.0", port=0)
 
 
-@pytest.fixture
-def legacy(monkeypatch):
-    monkeypatch.syspath_prepend(str(LEGACY_SRC))
-    for name in list(sys.modules):
-        if name == "google_browser_scraper" or name.startswith("google_browser_scraper."):
-            monkeypatch.delitem(sys.modules, name)
-    return LEGACY_SRC
+@pytest.fixture(params=sorted(OLD_NAMES))
+def legacy(request, monkeypatch):
+    name = request.param
+    monkeypatch.syspath_prepend(str(OLD_NAMES[name]))
+    for module in list(sys.modules):
+        if module == name or module.startswith(name + "."):
+            monkeypatch.delitem(sys.modules, module)
+    return name
 
 
-def test_the_old_import_name_warns_and_is_gserp(legacy):
-    import gserp
-    import gserp.scraper
+def test_an_old_import_name_warns_and_is_serpmaven(legacy):
+    import serpmaven
+    import serpmaven.scraper
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        old = importlib.import_module("google_browser_scraper")
+        old = importlib.import_module(legacy)
     assert any(issubclass(w.category, FutureWarning) for w in caught)
-    assert old.Scraper is gserp.Scraper and old.__version__ == gserp.__version__
-    from google_browser_scraper.scraper import Settings
-
-    assert Settings is gserp.scraper.Settings
+    assert old.Scraper is serpmaven.Scraper and old.__version__ == serpmaven.__version__
+    assert importlib.import_module(f"{legacy}.scraper").Settings is serpmaven.scraper.Settings
     # Every public module is aliased, read from the package rather than a list.
-    public = {p.stem for p in Path(gserp.__file__).parent.glob("*.py")} - {"__init__", "__main__"}
+    public = {p.stem for p in Path(serpmaven.__file__).parent.glob("*.py")} - {
+        "__init__",
+        "__main__",
+    }
     assert set(old.MODULES) == public
     assert "__main__" not in old.MODULES
     for name in public:
-        new = importlib.import_module(f"gserp.{name}")
-        assert importlib.import_module(f"google_browser_scraper.{name}") is new
-        assert getattr(old, name) is new
+        new = importlib.import_module(f"serpmaven.{name}")
+        assert importlib.import_module(f"{legacy}.{name}") is new
+        assert getattr(old, name) is getattr(serpmaven, name)
+    # A function exported under a module's name stays the function.
+    assert old.classify is serpmaven.classify and callable(old.classify)
 
 
-def test_the_old_module_runs_the_new_cli(legacy):
-    import gserp
+def test_an_old_module_runs_the_new_cli(legacy):
+    import serpmaven
 
     src = Path(__file__).resolve().parent.parent / "src"
-    environ = {**os.environ, "PYTHONPATH": os.pathsep.join([str(legacy), str(src)])}
+    path = os.pathsep.join([str(OLD_NAMES[legacy]), str(src)])
     out = subprocess.run(
-        [sys.executable, "-W", "ignore", "-m", "google_browser_scraper", "--version"],
+        [sys.executable, "-W", "ignore", "-m", legacy, "--version"],
         capture_output=True,
         text=True,
-        env=environ,
+        env={**os.environ, "PYTHONPATH": path},
         check=True,
     )
-    assert out.stdout.strip() == gserp.__version__
+    assert out.stdout.strip() == serpmaven.__version__
+
+
+def test_an_old_command_names_itself_in_usage(legacy):
+    src = Path(__file__).resolve().parent.parent / "src"
+    path = os.pathsep.join([str(OLD_NAMES[legacy]), str(src)])
+    out = subprocess.run(
+        [sys.executable, "-W", "ignore", "-m", legacy, "--no-such-option"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": path},
+    )
+    command = {"gserp": "gserp", "google_browser_scraper": "google-browser-scraper"}[legacy]
+    assert out.returncode == 2
+    assert out.stderr.startswith(f"usage: {command} ")
+
+
+def test_released_google_browser_scraper_0_2_x_works_over_the_new_gserp(monkeypatch):
+    # google-browser-scraper 0.2.0/0.2.1 import gserp and list its modules from
+    # gserp.__path__; someone who upgrades only gserp must not break it.
+    released = Path(__file__).resolve().parent / "data" / "google_browser_scraper_021"
+    monkeypatch.syspath_prepend(str(OLD_NAMES["gserp"]))
+    monkeypatch.syspath_prepend(str(released))
+    for module in list(sys.modules):
+        if module.split(".")[0] in ("gserp", "google_browser_scraper"):
+            monkeypatch.delitem(sys.modules, module)
+    import serpmaven
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        old = importlib.import_module("google_browser_scraper")
+    assert old.Scraper is serpmaven.Scraper
+    assert importlib.import_module("google_browser_scraper.scraper") is serpmaven.scraper

@@ -24,7 +24,7 @@ wait for the browser at once; a request past that is answered 429.
 `/health` answers 503 `warming` while `--prewarm` is still looking for an exit
 Google serves, and 503 `busy` when a long search holds the scraper.
 
-Set GSERP_API_KEY to require `api_key=` or `Authorization: Bearer`; without it the
+Set SERPMAVEN_API_KEY to require `api_key=` or `Authorization: Bearer`; without it the
 server refuses to listen anywhere but loopback.
 """
 
@@ -384,7 +384,7 @@ def make_handler(
         return done
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "gserp"
+        server_version = "serpmaven"
 
         def do_GET(self):  # noqa: N802 - the stdlib's name
             parts = urlsplit(self.path)
@@ -516,7 +516,7 @@ def serve(worker: Worker, *, host: str, port: int, max_pages: int = 3) -> None:
     api_key = env.get("API_KEY")
     if not api_key and host not in ("127.0.0.1", "localhost", "::1"):
         raise ValueError(
-            "set GSERP_API_KEY before listening on a non-loopback address: "
+            "set SERPMAVEN_API_KEY before listening on a non-loopback address: "
             "anyone who can reach the port spends your proxy traffic"
         )
     server = ThreadingHTTPServer(

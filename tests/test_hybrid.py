@@ -5,9 +5,9 @@ import json
 
 import pages
 
-from gserp import hybrid, quality
-from gserp.browser import Fetched
-from gserp.hybrid import Headers, HybridSession, LinkClient
+from serpmaven import hybrid, quality
+from serpmaven.browser import Fetched
+from serpmaven.hybrid import Headers, HybridSession, LinkClient
 
 SEARCH = "https://www.google.com/search?q=x"
 SERVED = Fetched(SEARCH, 200, pages.results_page())
