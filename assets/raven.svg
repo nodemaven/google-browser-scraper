@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" role="img" aria-label="SERP Maven raven">
+  <defs>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4b86f5"/>
+      <stop offset="1" stop-color="#25e2a6"/>
+    </linearGradient>
+    <linearGradient id="head" gradientUnits="userSpaceOnUse" x1="0" y1="8" x2="0" y2="60">
+      <stop offset="0" stop-color="#253a64"/>
+      <stop offset="1" stop-color="#101b33"/>
+    </linearGradient>
+    <g id="shape">
+      <!-- head -->
+      <circle cx="27" cy="31" r="21"/>
+      <!-- beak -->
+      <path d="M41 17.500c9 0 17.500 5.500 21.500 14.500 .5 1.500-.5 3-2 3.500-6.500 2.500-13.500 4-20.500 4z"/>
+      <!-- feathers at the back of the head -->
+      <path d="M10 19l-6.500-2.500 3 6-5 1.500 5 4z"/>
+      <!-- throat feathers -->
+      <path d="M26 49l-1.500 7 5-2.500 1.500 6 4.500-5.500 4.500 4 .5-8.500 3.500-4z"/>
+    </g>
+  </defs>
+
+  <!-- light rim, so the head reads on a dark page too -->
+  <use xlink:href="#shape" href="#shape" fill="#9db9ee" stroke="#9db9ee" stroke-width="3.400" stroke-linejoin="round"/>
+  <use xlink:href="#shape" href="#shape" fill="url(#head)"/>
+
+  <!-- sheen on the back of the head and the cheek -->
+  <path d="M10 26c2-9 10-14.500 19-14-7 3-11 9-11.500 16.500-.5 7 2.500 12.500 8 16-9-.5-15.500-7-16-14.500-.1-1.400 0-2.700 .5-4z" fill="url(#sheen)"/>
+
+  <!-- beak: darker, with a gape line and a nostril -->
+  <path d="M41 17.500c9 0 17.500 5.500 21.500 14.500 .5 1.500-.5 3-2 3.500-6.500 2.500-13.500 4-20.500 4z" fill="#0b1326"/>
+  <path d="M41.500 30c7 0 13.500 1 20 3.300" fill="none" stroke="#6a8ac4" stroke-width="1.700" stroke-linecap="round"/>
+  <path d="M46 23.500c1.800-.4 3.500 0 5 1" fill="none" stroke="#6a8ac4" stroke-width="1.500" stroke-linecap="round"/>
+
+  <!-- eye -->
+  <circle cx="32" cy="26" r="7.600" fill="#25e2a6"/>
+  <circle cx="33.200" cy="26.500" r="3.900" fill="#0b1326"/>
+  <circle cx="34.700" cy="24.700" r="1.500" fill="#fff"/>
+</svg>
