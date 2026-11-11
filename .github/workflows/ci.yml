@@ -47,6 +47,22 @@ jobs:
           gserp --version
           google-browser-scraper --version
 
+  # Warnings, not failures: a pull request is told which functions or modules
+  # it makes longer than the limits in scripts/code_audit.py.
+  audit:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Longer functions and modules
+        run: python scripts/code_audit.py --base "origin/${{ github.base_ref }}"
+
   # The branch protection rule needs one stable name, whatever the matrix is.
   ci-ok:
     if: always()
