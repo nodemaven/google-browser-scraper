@@ -118,14 +118,33 @@ CLI, Python library, HTTP API, MCP server or Docker image. Traffic and cost per 
 
 ## Install
 
+One line with [uv](https://docs.astral.sh/uv/), on Windows, macOS or Linux:
+
+```bash
+uv tool install serpmaven
+```
+
+No uv yet? It installs with one line too: `curl -LsSf https://astral.sh/uv/install.sh | sh` on
+macOS and Linux, `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+on Windows; then open a new terminal, so it finds the commands. To try SERP Maven without
+installing it, put `uvx` in front of any command below:
+`uvx serpmaven search ...`.
+
+The first run offers to download its browser (about 150 MB, once per machine);
+`serpmaven install` does it ahead of time, and `serpmaven doctor` ends with `ready` when the
+browser starts and looks like a desktop.
+
+<details>
+<summary><b>With pip instead</b></summary>
+
+<br>
+
 Python 3.10 or newer, in a virtual environment:
 
 ```bash
 python3 -m venv serpmaven-env
 source serpmaven-env/bin/activate
 pip install serpmaven
-patchright install chromium
-serpmaven doctor
 ```
 
 In PowerShell:
@@ -135,11 +154,9 @@ python -m venv serpmaven-env
 Set-ExecutionPolicy -Scope Process Bypass -Force   # lets this window run Activate.ps1
 .\serpmaven-env\Scripts\Activate.ps1
 pip install serpmaven
-patchright install chromium
-serpmaven doctor
 ```
 
-`doctor` ends with `ready` when the browser starts and looks like a desktop.
+</details>
 
 <details>
 <summary><b>On a Linux server (no screen)</b></summary>
@@ -151,7 +168,7 @@ software WebGL when there is no GPU:
 
 ```bash
 sudo apt install xvfb
-sudo serpmaven-env/bin/patchright install-deps chromium
+serpmaven install --with-deps
 export SERPMAVEN_BROWSER_ARGS=--enable-unsafe-swiftshader
 xvfb-run -a serpmaven doctor
 ```
@@ -164,11 +181,22 @@ all of this built in.
 ## Quickstart
 
 > [!NOTE]
-> You need a residential proxy with **sticky sessions**. Put `{session}` where
-> your provider expects a session id in the username.
+> You need a residential proxy with **sticky sessions**.
+
+Save your proxy login once. For NodeMaven it asks for the Proxy Username and Proxy Password
+from the dashboard:
 
 ```bash
-serpmaven search "best running shoes" --proxy "http://USER-session-{session}:PASS@gate.example.com:7000" -o results.jsonl
+serpmaven login
+serpmaven search "best running shoes" --country us -o results.jsonl
+```
+
+Any other provider: save its proxy URL, with `{session}` where it expects a session id in the
+username:
+
+```bash
+serpmaven login --proxy "http://USER-session-{session}:PASS@gate.example.com:7000"
+serpmaven search "best running shoes" -o results.jsonl
 ```
 
 The first query takes a few minutes while the first proxy IP warms up on a few
@@ -176,25 +204,9 @@ ordinary pages; the terminal shows each step. Later queries take seconds, and
 new proxy IPs start from its cookies. Every run ends with the pages served and
 the traffic used, warm-up apart from the pages.
 
-### With NodeMaven
-
-The session id is handled for you and the credentials come from the environment:
-
-```bash
-pip install "serpmaven[nodemaven]"
-export NODEMAVEN_LOGIN=... NODEMAVEN_PASSWORD=...
-printf "best running shoes\nhow to boil eggs\n" > queries.txt
-serpmaven search -f queries.txt --nodemaven --country us -o results.jsonl
-```
-
-In PowerShell:
-
-```powershell
-pip install "serpmaven[nodemaven]"
-$env:NODEMAVEN_LOGIN = "..."; $env:NODEMAVEN_PASSWORD = "..."
-Set-Content queries.txt "best running shoes", "how to boil eggs"
-serpmaven search -f queries.txt --nodemaven --country us -o results.jsonl
-```
+A file of queries, one per line: `serpmaven search -f queries.txt -o results.jsonl`.
+`--proxy`, `--nodemaven`, `SERPMAVEN_PROXY` and `NODEMAVEN_LOGIN` / `NODEMAVEN_PASSWORD`
+win over the saved login; `serpmaven logout` deletes it.
 
 > [!TIP]
 > 🎁 **2 GB of free traffic.** No NodeMaven account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=signup_promo) and enter the code **GOOGLENM**. Once per account.
@@ -297,7 +309,7 @@ is asked again on a fresh one.
 ## Run it as an API
 
 ```bash
-serpmaven serve --nodemaven --country us --prewarm
+serpmaven serve --country us --prewarm
 curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 ```
 
@@ -319,14 +331,15 @@ In PowerShell, call `curl.exe` (plain `curl` there is another command).
   "mcpServers": {
     "google-search": {
       "command": "serpmaven",
-      "args": ["mcp", "--nodemaven", "--country", "us", "--prewarm"],
-      "env": {"NODEMAVEN_LOGIN": "...", "NODEMAVEN_PASSWORD": "..."}
+      "args": ["mcp", "--country", "us", "--prewarm"]
     }
   }
 }
 ```
 
-One tool, `google_search(query, pages, hl, gl)`. It returns the organic results,
+It uses the login saved with `serpmaven login`; or add
+`"env": {"NODEMAVEN_LOGIN": "...", "NODEMAVEN_PASSWORD": "..."}`. One tool,
+`google_search(query, pages, hl, gl)`. It returns the organic results,
 "People also ask", related searches, and the AI Overview and map places when
 Google shows them.
 

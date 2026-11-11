@@ -92,6 +92,11 @@ def load_cookies(path: str) -> tuple[dict, ...]:
     return tuple(out)
 
 
+#: How the browser reports a navigation cut short by another one, before the
+#: URL of the one that took over.
+INTERRUPTED_BY = "is interrupted by another navigation to"
+
+
 def search_page() -> str:
     """Google's results page without a query, on the host of `HOME_URL`: what
     cookies are read for and what the hybrid looks for in a NetLog."""
@@ -388,15 +393,29 @@ class BrowserSession:
     ) -> Fetched:
         url = results_url(query, hl or self._hl, gl or self._gl, start)
         mark = time.monotonic()
-        response = self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        response = self._goto_results(url)
         # A fresh exit can be shown the consent wall instead of results; clear
         # it and open the results again, as the typed path does on the front page.
         dismissed = self._dismiss_consent()
         if dismissed:
-            response = self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+            response = self._goto_results(url)
         load = round(time.monotonic() - mark, 2)
         fetched = self._snapshot(response, dismissed)
         return replace(fetched, timings={"load": load, **fetched.timings})
+
+    def _goto_results(self, url: str):
+        """Open a results page. Google sometimes answers first with a check page
+        whose own script loads the results URL again before the first load is
+        over; the browser then reports the first navigation as interrupted.
+        That is the results arriving, not a failure: wait for them instead."""
+        try:
+            return self.page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        except Exception as exc:
+            _, _, target = str(exc).partition(INTERRUPTED_BY)
+            if "/search?" not in target:
+                raise
+            self.page.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
+            return None
 
     def _box_visible(self) -> bool:
         try:

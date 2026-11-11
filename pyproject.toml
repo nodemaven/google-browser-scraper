@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "serpmaven"
-version = "0.2.2"
+version = "0.2.3"
 description = "SERP Maven: self-hosted SERP API. Search results as JSON from a real Chrome browser through your own residential proxy. HTTP API, CLI and MCP server."
 readme = "README.md"
 license = { text = "MIT" }
@@ -40,11 +40,14 @@ dependencies = [
     # Chromium's TLS and HTTP/2 fingerprint. Pinned for the same reason as
     # patchright: what it impersonates is part of what Google sees.
     "curl_cffi==0.17.0",
+    # The NodeMaven SDK builds sticky-session usernames for its gateway. It is
+    # small and stdlib-only, so it ships by default and `--nodemaven` works
+    # from a one-line install; any other provider works through a proxy URL.
+    "nodemaven>=0.1.5",
 ]
 
 [project.optional-dependencies]
-# The NodeMaven SDK builds sticky-session usernames for its gateway. Any other
-# provider works through a proxy URL with a `{session}` placeholder instead.
+# Kept so `pip install "serpmaven[nodemaven]"` from older instructions still works.
 nodemaven = ["nodemaven>=0.1.5"]
 # CloakBrowser's patched Chromium; downloads its own binary on first use.
 cloak = ["cloakbrowser>=0.5"]
