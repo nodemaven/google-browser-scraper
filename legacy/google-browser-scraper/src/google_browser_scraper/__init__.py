@@ -33,7 +33,9 @@ MODULES = tuple(
 for _name in MODULES:
     _module = importlib.import_module(f"serpmaven.{_name}")
     sys.modules[f"{__name__}.{_name}"] = _module
-    setattr(sys.modules[__name__], _name, _module)
+    # The attribute is whatever serpmaven has under that name: the module, or a
+    # function exported under the same name (`classify` is both).
+    setattr(sys.modules[__name__], _name, getattr(serpmaven, _name, _module))
 
 
 def main() -> int:

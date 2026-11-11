@@ -85,7 +85,9 @@ def test_an_old_import_name_warns_and_is_serpmaven(legacy):
     for name in public:
         new = importlib.import_module(f"serpmaven.{name}")
         assert importlib.import_module(f"{legacy}.{name}") is new
-        assert getattr(old, name) is new
+        assert getattr(old, name) is getattr(serpmaven, name)
+    # A function exported under a module's name stays the function.
+    assert old.classify is serpmaven.classify and callable(old.classify)
 
 
 def test_an_old_module_runs_the_new_cli(legacy):

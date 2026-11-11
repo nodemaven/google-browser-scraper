@@ -1,8 +1,9 @@
 # Publish the old names, `gserp` and `google-browser-scraper`, to PyPI from
 # `legacy/`.
 #
-# Neither package holds code: each depends on `serpmaven` at the same version and
-# keeps its old command and import working. They are released from the same
+# Each package is a thin compatibility layer: it depends on `serpmaven` at the
+# same version or newer, and its own code only aliases the old import, command
+# and `python -m` to serpmaven. They are released from the same
 # published GitHub release as `serpmaven` (see publish.yml), through their own
 # Trusted Publisher entries on PyPI, which name this file and the `pypi`
 # environment.
