@@ -118,7 +118,31 @@ CLI, Python library, HTTP API, MCP server or Docker image. Traffic and cost per 
 
 ## Install
 
-One line with [uv](https://docs.astral.sh/uv/), on Windows, macOS or Linux:
+Python 3.10 or newer. On Windows:
+
+```powershell
+pip install serpmaven
+```
+
+On macOS and Linux the system Python refuses `pip install` outside a virtual environment, so
+make one first:
+
+```bash
+python3 -m venv serpmaven-env
+source serpmaven-env/bin/activate
+pip install serpmaven
+```
+
+In a new terminal, run `source serpmaven-env/bin/activate` again before using `serpmaven`.
+
+The first run offers to download its browser (about 150 MB, once per machine);
+`serpmaven install` does it ahead of time, and `serpmaven doctor` ends with `ready` when the
+browser starts and looks like a desktop.
+
+<details>
+<summary><b>With uv: one command, no Python or virtual environment needed</b></summary>
+
+<br>
 
 ```bash
 uv tool install serpmaven
@@ -127,34 +151,7 @@ uv tool install serpmaven
 No uv yet? It installs with one line too: `curl -LsSf https://astral.sh/uv/install.sh | sh` on
 macOS and Linux, `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
 on Windows; then open a new terminal, so it finds the commands. To try SERP Maven without
-installing it, put `uvx` in front of any command below:
-`uvx serpmaven search ...`.
-
-The first run offers to download its browser (about 150 MB, once per machine);
-`serpmaven install` does it ahead of time, and `serpmaven doctor` ends with `ready` when the
-browser starts and looks like a desktop.
-
-<details>
-<summary><b>With pip instead</b></summary>
-
-<br>
-
-Python 3.10 or newer, in a virtual environment:
-
-```bash
-python3 -m venv serpmaven-env
-source serpmaven-env/bin/activate
-pip install serpmaven
-```
-
-In PowerShell:
-
-```powershell
-python -m venv serpmaven-env
-Set-ExecutionPolicy -Scope Process Bypass -Force   # lets this window run Activate.ps1
-.\serpmaven-env\Scripts\Activate.ps1
-pip install serpmaven
-```
+installing it, put `uvx` in front of any command below: `uvx serpmaven search ...`.
 
 </details>
 
