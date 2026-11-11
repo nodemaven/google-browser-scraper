@@ -367,7 +367,7 @@ def _landed(search: Search, done: Future, worker: Worker) -> None:
     worker.after(settle_job)
 
 
-def make_handler(
+def make_handler(  # noqa: C901
     worker: Worker, *, api_key: str | None, max_pages: int, archive: Archive | None = None
 ):
     archive = archive or Archive()
@@ -386,7 +386,7 @@ def make_handler(
     class Handler(BaseHTTPRequestHandler):
         server_version = "serpmaven"
 
-        def do_GET(self):  # noqa: N802 - the stdlib's name
+        def do_GET(self):  # noqa: C901, N802 - the stdlib's name
             parts = urlsplit(self.path)
             params = {k: v[0] for k, v in parse_qs(parts.query).items()}
             if api_key and not self._authorized(params):

@@ -387,7 +387,7 @@ def _build(
     return Scraper(proxy, settings, on_event=log), described
 
 
-def _search(args) -> int:
+def _search(args) -> int:  # noqa: C901
     queries = list(args.queries)
     if args.file:
         try:

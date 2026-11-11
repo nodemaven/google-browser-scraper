@@ -43,7 +43,7 @@ class Verdict:
         return self.kind in REFUSED
 
 
-def classify(url: str | None, html: str | None, status: int | None = None) -> Verdict:
+def classify(url: str | None, html: str | None, status: int | None = None) -> Verdict:  # noqa: C901
     """Classify one Google response from its final URL, body and status.
 
     Order matters. A served page can carry a dormant consent panel, so the

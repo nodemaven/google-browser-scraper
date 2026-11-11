@@ -78,12 +78,6 @@ def ping_paths(page: str) -> dict[str, str]:
     return paths
 
 
-def is_google_host(host: str) -> bool:
-    """Whether `host` (or a cookie domain, with its leading dot) is one of
-    Google's own: google.com, google.de, google.co.uk and their subdomains."""
-    return isinstance(host, str) and bool(_GOOGLE_HOST.fullmatch(host.lower().strip(".")))
-
-
 def _destination(url: str | None) -> str | None:
     """`url` if it can be where a result leads: an absolute http(s) URL and not
     one of Google's own redirects. Google's "Verifying your request" page names
@@ -141,7 +135,7 @@ class _AlwaysProxy(urllib.request.ProxyHandler):
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
+    def redirect_request(self, *_args, **_kwargs):
         return None
 
 
