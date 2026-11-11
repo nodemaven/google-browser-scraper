@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/banner.png" alt="SERP Maven">
 
-<h1>SERP Maven</h1>
+<h1><img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/raven.svg" alt="" height="48" align="absmiddle"> SERP Maven</h1>
 
 <p><b>Self-hosted SERP API alternative: search results from a real Chrome browser and your own residential proxy.</b></p>
 
@@ -244,7 +244,7 @@ for page in Scraper(proxy, Settings(pages=2)).run(["best running shoes"]):
 
 ## What you get
 
-One JSON object per results page:
+SERP Maven <img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/raven.svg" alt="" height="20" align="absmiddle"> returns one JSON object per results page:
 
 ```json
 {
@@ -513,3 +513,5 @@ engine actually gets served, not whether it got lucky once.
 ## License
 
 [MIT](https://github.com/nodemaven/serpmaven/blob/main/LICENSE)
+
+<p align="center"><img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/raven.svg" alt="SERP Maven raven" height="64"><br><sub>SERP Maven by <a href="https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=footer">NodeMaven</a></sub></p>
