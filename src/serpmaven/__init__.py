@@ -1,13 +1,13 @@
 """Google search results from a real browser through your own proxy.
 
-from gserp import Scraper, Settings, ProxyTemplate
+from serpmaven import Scraper, Settings, ProxyTemplate
 
 proxy = ProxyTemplate("http://user-session-{session}:pass@gate.example.com:7000")
 for record in Scraper(proxy, Settings(pages=2)).run(["best running shoes"]):
     print(record["organic_results"])
 """
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 from .classify import Verdict, classify  # noqa: E402
 from .parse import parse_serp  # noqa: E402

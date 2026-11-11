@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from gserp.mcp import McpServer  # noqa: E402
-from gserp.scraper import Settings  # noqa: E402
+from serpmaven.mcp import McpServer  # noqa: E402
+from serpmaven.scraper import Settings  # noqa: E402
 
 
 class EchoScraper:

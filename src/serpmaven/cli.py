@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="gserp",
+        prog="serpmaven",
         description="Google results from a real browser through your own proxy.",
     )
     parser.add_argument("--version", action="version", version=__version__)
@@ -111,7 +111,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     source.add_argument(
         "--proxy",
         help="proxy URL with a {session} placeholder for sticky sessions; "
-        "also read from GSERP_PROXY",
+        "also read from SERPMAVEN_PROXY",
     )
     source.add_argument(
         "--nodemaven",
@@ -241,7 +241,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         dest="browser_args",
-        help="extra Chromium switch, repeatable; also GSERP_BROWSER_ARGS",
+        help="extra Chromium switch, repeatable; also SERPMAVEN_BROWSER_ARGS",
     )
     p.add_argument(
         "--no-relay",
@@ -500,7 +500,7 @@ def _doctor(args) -> int:
     if any(c.status == FAIL for c in checks):
         print("not ready: fix the [fail] lines above first")
         return 1
-    print("ready: run gserp search with your proxy")
+    print("ready: run serpmaven search with your proxy")
     return 0
 
 

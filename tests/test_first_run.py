@@ -9,9 +9,9 @@ import socket
 
 import pytest
 
-from gserp import cli, hints
-from gserp.progress import Progress
-from gserp.relay import Relay
+from serpmaven import cli, hints
+from serpmaven.progress import Progress
+from serpmaven.relay import Relay
 
 
 def _connect(address: str, authority: str) -> str:
@@ -269,7 +269,7 @@ def test_concurrent_warm_ups_get_distinct_numbers_and_one_explanation():
 
 
 def test_a_pool_worker_setup_error_is_one_line(monkeypatch, capsys):
-    from gserp.scraper import ExitsRefused
+    from serpmaven.scraper import ExitsRefused
 
     class FailedPool:
         stats = type("Stats", (), {"summary": lambda self, price: {}})()

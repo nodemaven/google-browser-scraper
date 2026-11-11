@@ -4,11 +4,11 @@ import json
 import pages
 import pytest
 
-from gserp import cli
-from gserp.classify import classify
-from gserp.doctor import FAIL, PASS, WARN, assess
-from gserp.output import build_record, open_writer
-from gserp.parse import parse_serp
+from serpmaven import cli
+from serpmaven.classify import classify
+from serpmaven.doctor import FAIL, PASS, WARN, assess
+from serpmaven.output import build_record, open_writer
+from serpmaven.parse import parse_serp
 
 
 def record():
@@ -78,6 +78,7 @@ def test_parse_command_refuses_to_parse_a_refusal(tmp_path, capsys):
     ],
 )
 def test_search_argument_errors(argv, capsys, monkeypatch):
+    monkeypatch.delenv("SERPMAVEN_PROXY", raising=False)
     monkeypatch.delenv("GSERP_PROXY", raising=False)
     monkeypatch.delenv("GBS_PROXY", raising=False)
     assert cli.main(argv) == 1
@@ -214,7 +215,7 @@ def test_cookie_sets_are_renewed_by_default_and_zero_brings_copies_back():
 def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
     import json
 
-    from gserp.browser import load_cookies
+    from serpmaven.browser import load_cookies
 
     f = tmp_path / "donor.json"
     f.write_text(
@@ -258,7 +259,7 @@ def test_load_cookies_takes_a_donor_file_and_keeps_google_only(tmp_path):
 def test_load_cookies_refuses_malformed_fields_before_a_browser_starts(tmp_path):
     import json
 
-    from gserp.browser import load_cookies
+    from serpmaven.browser import load_cookies
 
     f = tmp_path / "donor.json"
     nid = {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"}
@@ -293,7 +294,7 @@ def test_load_cookies_refuses_malformed_fields_before_a_browser_starts(tmp_path)
 def test_load_cookies_drops_lookalike_domains_and_needs_a_live_nid(tmp_path):
     import json
 
-    from gserp.browser import load_cookies
+    from serpmaven.browser import load_cookies
 
     f = tmp_path / "donor.json"
     nid = {"name": "NID", "value": "v", "domain": ".google.com", "path": "/"}

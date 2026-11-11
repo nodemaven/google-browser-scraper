@@ -1,0 +1,38 @@
+# The second name of serpmaven, kept so that `pip install gserp`,
+# the `gserp` command and `import gserp` go on
+# working. It holds no code of its own: it installs `serpmaven`, this version or newer.
+[build-system]
+# 77 for `license-files` in [project].
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gserp"
+version = "0.3.0"
+description = "Renamed to serpmaven (SERP Maven). Installing this installs serpmaven and keeps the old command and import working."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "NodeMaven" }]
+classifiers = [
+    "Development Status :: 7 - Inactive",
+    "Programming Language :: Python :: 3",
+]
+dependencies = ["serpmaven>=0.3.0"]
+
+[project.optional-dependencies]
+nodemaven = ["serpmaven[nodemaven]>=0.3.0"]
+cloak = ["serpmaven[cloak]>=0.3.0"]
+all = ["serpmaven[all]>=0.3.0"]
+dev = ["serpmaven[dev]>=0.3.0"]
+
+[project.scripts]
+gserp = "gserp:main"
+
+[project.urls]
+Source = "https://github.com/nodemaven/serpmaven"
+"New package" = "https://pypi.org/project/serpmaven/"
+
+[tool.setuptools.packages.find]
+where = ["src"]

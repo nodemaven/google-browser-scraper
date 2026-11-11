@@ -1,6 +1,6 @@
-from gserp import warmup
-from gserp.cli import _parser
-from gserp.scraper import Settings
+from serpmaven import warmup
+from serpmaven.cli import _parser
+from serpmaven.scraper import Settings
 
 
 def test_light_is_the_default_ladder_without_trends():

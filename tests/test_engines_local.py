@@ -13,8 +13,8 @@ import importlib
 import fakegoogle
 import pytest
 
-from gserp import browser, engines
-from gserp.scraper import Scraper, Settings
+from serpmaven import browser, engines
+from serpmaven.scraper import Scraper, Settings
 
 PACKAGES = {"patchright": "patchright.sync_api", "cloak": "cloakbrowser"}
 
@@ -115,7 +115,7 @@ def test_a_pool_of_real_browsers_shares_the_queries(local_google):
         importlib.import_module(PACKAGES["patchright"])
     except ImportError:
         pytest.skip("patchright is not installed")
-    from gserp.pool import Pool
+    from serpmaven.pool import Pool
 
     settings = Settings(
         warmup="off",

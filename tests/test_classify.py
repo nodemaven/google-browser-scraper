@@ -1,7 +1,7 @@
 import pages
 import pytest
 
-from gserp.classify import (
+from serpmaven.classify import (
     BLOCK,
     CONSENT,
     EMPTY,

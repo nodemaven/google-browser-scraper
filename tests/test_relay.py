@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from gserp.relay import Relay
+from serpmaven.relay import Relay
 
 
 def _serve(handler):

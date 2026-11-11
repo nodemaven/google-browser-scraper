@@ -638,7 +638,7 @@ class Breaker:
             raise ExitsRefused(
                 f"{count} exits in a row were refused or unreachable, none served in "
                 "between. Stopping rather than spending more traffic: check the proxy, "
-                "the machine (`gserp doctor`) and the hour, then retry."
+                "the machine (`serpmaven doctor`) and the hour, then retry."
             )
 
 
