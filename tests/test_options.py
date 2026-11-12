@@ -17,7 +17,6 @@ from serpmaven import cli, engines, warmup
 from serpmaven.scraper import Settings
 
 README = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
-SOURCE = inspect.getsource(cli)
 
 #: Commands that build a scraper from their options.
 SCRAPING = ("search", "serve", "mcp")
@@ -102,21 +101,51 @@ NOT_FROM_AN_OPTION = {
 }
 
 
+#: The name the options before any command go under.
+ROOT = ""
+
+
+def _parsers() -> dict[str, argparse.ArgumentParser]:
+    root = cli._parser()
+    commands = next(a for a in root._actions if isinstance(a, argparse._SubParsersAction))
+    return {ROOT: root, **commands.choices}
+
+
 def _options() -> list[tuple[str, str, argparse.Action]]:
-    """(command, long option, action) for every option of every command."""
-    commands = next(
-        a for a in cli._parser()._actions if isinstance(a, argparse._SubParsersAction)
-    ).choices
+    """(command, long option, action) for every option of every command, but
+    for the ones argparse answers itself: --help and --version."""
     return [
         (command, long, action)
-        for command, parser in commands.items()
+        for command, parser in _parsers().items()
         for action in parser._actions
-        if not isinstance(action, argparse._HelpAction)
+        if not isinstance(action, (argparse._HelpAction, argparse._VersionAction))
         for long in [o for o in action.option_strings if o.startswith("--")][:1]
     ]
 
 
 OPTIONS = _options()
+
+
+def _source(command: str) -> str:
+    """The code a command runs: its handler and every function of the cli
+    module the handler can reach."""
+    start = cli.main if command == ROOT else _parsers()[command].get_default("handler")
+    seen: dict[str, str] = {}
+    queue = [start]
+    while queue:
+        fn = inspect.unwrap(queue.pop())
+        if fn.__qualname__ in seen:
+            continue
+        seen[fn.__qualname__] = inspect.getsource(fn)
+        codes = [fn.__code__]
+        while codes:
+            code = codes.pop()
+            codes += [c for c in code.co_consts if inspect.iscode(c)]
+            for name in code.co_names:
+                other = getattr(cli, name, None)
+                if inspect.isfunction(other) and other.__module__ == cli.__name__:
+                    queue.append(other)
+    return "\n".join(seen.values())
 
 
 def test_every_option_is_in_the_readme():
@@ -131,8 +160,11 @@ def test_every_option_is_in_the_readme():
 
 
 def test_every_option_is_read_by_its_command():
+    source = {command: _source(command) for command in _parsers()}
     unread = sorted(
-        {option for _, option, a in OPTIONS if not re.search(rf"\bargs\.{a.dest}\b", SOURCE)}
+        f"{command} {option}".strip()
+        for command, option, a in OPTIONS
+        if not re.search(rf"\bargs\.{a.dest}\b", source[command])
     )
     assert not unread, f"parsed and never read: {unread}"
 

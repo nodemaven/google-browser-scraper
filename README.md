@@ -305,7 +305,7 @@ In PowerShell, call `curl.exe` (plain `curl` there is another command).
 
 - Same record format as above
 - `--host` and `--port` set the address (default `127.0.0.1:8000`)
-- `pages=N` returns N result pages for one query, up to `--max-pages` (default 3)
+- `pages=N` returns N result pages for one query as a JSON array of records, up to `--max-pages` (default 3); more is answered 400
 - `hl` (language) and `gl` (country) per request: `/search.json?q=...&hl=de&gl=at`
 - `--prewarm` finds a proxy IP Google serves at startup, so the first request does not wait for a warm-up; `/health` answers 503 `warming` until then
 - Results pages are read one at a time on one held proxy IP; a page's links resolve in the background, so the next request starts while the last one waits for its links
@@ -462,11 +462,11 @@ The defaults come from measurements in
 | `--save-html DIR` | | Keep every page's HTML, gzipped |
 | `--channel NAME` | | Browser channel, e.g. `chrome` for the installed Chrome |
 | `--timezone ZONE` | | IANA timezone for the browser, e.g. `Europe/Berlin` |
-| `--browser-arg ARG` | | Extra Chromium switch; repeat for more, or set `SERPMAVEN_BROWSER_ARGS` |
+| `--browser-arg=ARG` | | Extra Chromium switch, e.g. `--browser-arg=--disable-gpu`; repeat for more, or set `SERPMAVEN_BROWSER_ARGS` |
 | `--headless` | | Run the browser without a window; `serpmaven doctor --headless` shows what a website sees then |
-| `--no-relay` | | Hand the proxy to the browser directly; traffic is not counted |
-| `--stop-after-read` | | Experimental: leave each results page once it is read |
-| `-v`, `--verbose` | | Print every step as JSON instead of the progress line, and the summary as one JSON line |
+| `--no-relay` | | Hand the proxy to the browser directly: traffic is not counted, and every results page is fetched in the browser |
+| `--stop-after-read` | | Experimental: leave each query's last results page once it is read |
+| `-v`, `--verbose` | | Print every step as a JSON line instead of the progress line; the run ends with `summary: {...}` |
 
 </details>
 
