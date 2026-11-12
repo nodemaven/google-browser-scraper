@@ -275,10 +275,15 @@ def test_a_worker_crash_is_raised_over_a_refusal_recorded_before_it(monkeypatch)
     from serpmaven import pool as pool_module
     from serpmaven.pool import WorkerFailed
 
+    refused = threading.Event()
+
     def work(self, index, scraper, todo, out, stopped):
         if index == 1:
-            time.sleep(0.05)  # the refusal is recorded first
-        stopped.append(WorkerFailed("worker 1 failed: no display") if index else ExitsRefused("6"))
+            assert refused.wait(5)  # the refusal is recorded first, by construction
+            stopped.append(WorkerFailed("worker 1 failed: no display"))
+        else:
+            stopped.append(ExitsRefused("6 exits in a row"))
+            refused.set()
         self._stop.set()
         out.put(pool_module._DONE)  # as the real worker does on its way out
 
