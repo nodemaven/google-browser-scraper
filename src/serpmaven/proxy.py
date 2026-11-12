@@ -38,6 +38,11 @@ class ProxySource(Protocol):
         """A one-line description that never contains the password."""
 
 
+#: Starts every session id serpmaven sends to NodeMaven's gateway, so NodeMaven can tell
+#: the scraper's traffic from other traffic on the same account. Nothing else is sent.
+NODEMAVEN_SESSION_TAG = "serpmaven"
+
+
 def new_session_id() -> str:
     """Twelve hex characters: unique enough per run, and legal in every username
     format seen so far."""
@@ -118,7 +123,7 @@ class NodeMavenSource:
         self._params = params
 
     def for_session(self, session_id: str) -> dict[str, str]:
-        return self._proxy.session(session_id).playwright()
+        return self._proxy.session(NODEMAVEN_SESSION_TAG + session_id).playwright()
 
     def describe(self) -> str:
         shown = ", ".join(f"{k}={v}" for k, v in sorted(self._params.items())) or "any country"
@@ -184,7 +189,7 @@ class NodeMavenDemoSource:
         self._closed = False
 
     def for_session(self, session_id: str) -> dict[str, str]:
-        return self._proxy.session(session_id).playwright()
+        return self._proxy.session(NODEMAVEN_SESSION_TAG + session_id).playwright()
 
     def describe(self) -> str:
         shown = ", ".join(f"{k}={v}" for k, v in sorted(self._params.items())) or "any country"

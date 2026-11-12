@@ -204,6 +204,8 @@ the traffic used, warm-up apart from the pages.
 A file of queries, one per line: `serpmaven search -f queries.txt -o results.jsonl`.
 `--proxy`, `--nodemaven`, `SERPMAVEN_PROXY` and `NODEMAVEN_LOGIN` / `NODEMAVEN_PASSWORD`
 win over the saved login; `serpmaven logout` deletes it.
+Through NodeMaven, each proxy IP's session id starts with `serpmaven`, so the
+traffic shows up as the scraper's on your account; other proxies get the plain id.
 
 > [!TIP]
 > 🎁 **2 GB of free traffic.** No NodeMaven account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=signup_promo) and enter the code **GOOGLENM**. Once per account.
