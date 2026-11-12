@@ -28,10 +28,15 @@ from .server import Worker, locale_problem, search_job, settle_job
 
 SUPPORTED_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MAX_PAGES = 3
+#: Links resolved per page when a call does not say (`serpmaven mcp --links`
+#: changes it). The top five answer in about 8 s; all of them take about 25 s.
+DEFAULT_LINKS = 5
 
 TOOL = {
     "name": "google_search",
     "title": "Google search",
+    # It reads the web and changes nothing: clients may run it without asking.
+    "annotations": {"readOnlyHint": True, "openWorldHint": True},
     "description": (
         "Search Google through a real browser and the configured proxy. Returns "
         "organic results (position, title, link, snippet), 'People also ask' "
@@ -58,6 +63,16 @@ TOOL = {
                 "type": "string",
                 "description": "Country the results are for, two letters, e.g. us, de.",
             },
+            "links": {
+                "type": "integer",
+                "minimum": 0,
+                "description": (
+                    "How many of the top results on each page need their full URL "
+                    "(default: 5). Each URL is a separate lookup, so a smaller "
+                    "number answers sooner; 0 skips them. A result without a URL "
+                    "carries its site instead."
+                ),
+            },
         },
         "required": ["query"],
     },
@@ -73,13 +88,15 @@ def compact(records: list[dict[str, Any]]) -> dict[str, Any]:
             errors.append(record["error"])
             continue
         for r in record.get("organic_results", []):
-            out["results"].append(
-                {
-                    k: r.get(k)
-                    for k in ("position", "title", "link", "snippet")
-                    if r.get(k) is not None
-                }
-            )
+            result = {
+                k: r.get(k)
+                for k in ("position", "title", "link", "snippet")
+                if r.get(k) is not None
+            }
+            site = (r.get("displayed_link") or "").split(" ")[0]
+            if "link" not in result and site:
+                result["site"] = site
+            out["results"].append(result)
         overview = (record.get("ai_overview") or {}).get("text")
         if overview and "ai_overview" not in out:
             out["ai_overview"] = overview
@@ -161,12 +178,17 @@ class McpServer:
         except (TypeError, ValueError):
             return _tool_error("pages must be an integer")
         pages = max(1, min(MAX_PAGES, pages))
+        links = args.get("links")
+        if links is not None and (
+            not isinstance(links, int) or isinstance(links, bool) or links < 0
+        ):
+            return _tool_error("links must be an integer, 0 or more")
         hl, gl = str(args.get("hl") or "") or None, str(args.get("gl") or "") or None
         problem = locale_problem(hl, gl)
         if problem:
             return _tool_error(problem)
         try:
-            records = self._worker.call(search_job(query, pages, hl, gl))
+            records = self._worker.call(search_job(query, pages, hl, gl, links))
         except ExitsRefused as exc:
             return _tool_error(str(exc))
         except Exception as exc:

@@ -14,6 +14,7 @@ from typing import Any
 
 from . import __version__, browser, config, engines, env, hints, installer, warmup
 from .classify import classify
+from .mcp import DEFAULT_LINKS as MCP_LINKS
 from .output import WRITERS, open_writer, use_utf8
 from .parse import parse_serp
 from .pool import Pool
@@ -93,7 +94,8 @@ def _parser(prog: str = "serpmaven") -> argparse.ArgumentParser:
     mcp.add_argument(
         "--prewarm", action="store_true", help="find a proxy IP Google serves before the first call"
     )
-    mcp.set_defaults(handler=_mcp)
+    # An agent waits for the answer: the top results' links are what it reads.
+    mcp.set_defaults(handler=_mcp, links=MCP_LINKS)
 
     parse = sub.add_parser("parse", help="parse a saved results page, offline")
     parse.add_argument("file", type=Path)
@@ -322,6 +324,13 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="leave result links as Google /goto redirects (saves one small request per result)",
     )
+    p.add_argument(
+        "--links",
+        type=int,
+        metavar="N",
+        help="resolve the links of the first N organic results on each page only "
+        "(0: none; default all, mcp 5); the rest carry their /goto redirect",
+    )
     p.add_argument("-v", "--verbose", action="store_true", help="log identities to stderr")
 
 
@@ -381,6 +390,8 @@ def _build(
     problem = locale_problem(args.hl, args.gl)
     if problem:
         raise ValueError(problem.replace("hl", "--hl", 1).replace("gl", "--gl", 1))
+    if args.links is not None and args.links < 0:
+        raise ValueError("--links must be 0 or more")
     browser_args = tuple(args.browser_args) + tuple(shlex.split(env.get("BROWSER_ARGS", "")))
     settings = Settings(
         engine=args.engine,
@@ -406,6 +417,7 @@ def _build(
         hybrid=not args.no_hybrid,
         save_html=_html_dir(args.save_html, worker),
         resolve_links=not args.no_resolve_links,
+        links=args.links,
         hl=args.hl,
         gl=args.gl,
         donors=tuple(browser.load_cookies(f) for f in args.cookies or ()),
