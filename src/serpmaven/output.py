@@ -155,25 +155,32 @@ def open_writer(fmt: str, stream: IO[str]):
 
 
 def answered(path: Path) -> set[str]:
-    """The queries a JSON Lines output file already holds a results page for,
-    for a run that resumes into it. A query with a failed record is left out,
-    so it is asked again. A last line cut off by a killed run is removed from
-    the file, so the records appended after it stay one per line."""
+    """The queries a JSON Lines output file already holds every page for, for a
+    run that resumes into it. Each query counts by its latest attempt (a record
+    for page 1 starts one): one whose latest attempt has a failed page is asked
+    again, one that failed and was then answered is not. The file is read a
+    line at a time, split on newlines only. A last line cut off by a killed run
+    is removed from the file, so the records appended after it stay one per line."""
+    complete: dict[str, bool] = {}
+    end = 0
     try:
-        data = path.read_bytes()
+        with path.open("rb") as f:
+            for line in f:
+                if not line.endswith(b"\n"):
+                    break  # the cut-off tail; `end` stays at its start
+                end += len(line)
+                try:
+                    record = json.loads(line)
+                    query = record["search_parameters"]["q"].strip()
+                    page = record["search_parameters"].get("page", 1)
+                    ok = record["search_metadata"]["status"] == "Success"
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    continue
+                complete[query] = ok if page == 1 else complete.get(query, False) and ok
+            tail = f.seek(0, 2) != end
     except FileNotFoundError:
         return set()
-    if data and not data.endswith(b"\n"):
-        data = data[: data.rfind(b"\n") + 1]
+    if tail:
         with path.open("r+b") as f:
-            f.truncate(len(data))
-    served, failed = set(), set()
-    for line in data.decode("utf-8", "replace").splitlines():
-        try:
-            record = json.loads(line)
-            query = record["search_parameters"]["q"].strip()
-            ok = record["search_metadata"]["status"] == "Success"
-        except (ValueError, KeyError, TypeError, AttributeError):
-            continue
-        (served if ok else failed).add(query)
-    return served - failed
+            f.truncate(end)
+    return {q for q, ok in complete.items() if ok}

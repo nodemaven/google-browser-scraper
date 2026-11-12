@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shlex
 import sys
 import time
@@ -19,7 +20,7 @@ from .parse import parse_serp
 from .pool import Pool
 from .progress import Progress
 from .proxy import NodeMavenDemoSource, NodeMavenSource, ProxyTemplate
-from .scraper import DIRECT_MODES, RENEW_EVERY, ExitsRefused, Scraper, Settings
+from .scraper import DIRECT_MODES, RENEW_EVERY, ExitsRefused, ProxyRefused, Scraper, Settings
 from .server import locale_problem
 
 
@@ -79,7 +80,7 @@ def _parser(prog: str = "serpmaven") -> argparse.ArgumentParser:
     )
     search.add_argument(
         "--patient",
-        type=float,
+        type=_minutes,
         default=0,
         metavar="MINUTES",
         help="when Google refuses proxy IPs until the run stops, wait this long and go on "
@@ -419,16 +420,13 @@ def _source_kind(args) -> tuple[str, str | None]:
     )
 
 
-def _build(
-    args, proxy, *, pages: int = 1, worker: int | None = None, progress: Progress | None = None
-) -> tuple[Scraper, str]:
+def _settings(args, *, pages: int = 1, worker: int | None = None) -> Settings:
+    """The scraper's settings from the options; raises ValueError on a bad one."""
     problem = locale_problem(args.hl, args.gl)
     if problem:
         raise ValueError(problem.replace("hl", "--hl", 1).replace("gl", "--gl", 1))
-    if args.location is not None:
-        browser.uule(args.location)  # refuses a name it cannot encode
     browser_args = tuple(args.browser_args) + tuple(shlex.split(env.get("BROWSER_ARGS", "")))
-    settings = Settings(
+    return Settings(
         engine=args.engine,
         warmup=args.warmup,
         pages=pages,
@@ -464,6 +462,12 @@ def _build(
         renew_donors_every=args.renew_cookies,
         donors_out=args.cookies_out,
     )
+
+
+def _build(
+    args, proxy, *, pages: int = 1, worker: int | None = None, progress: Progress | None = None
+) -> tuple[Scraper, str]:
+    settings = _settings(args, pages=pages, worker=worker)
     log = None
     if args.verbose:
         tag = {} if worker is None else {"worker": worker}
@@ -533,6 +537,9 @@ def _search(args) -> int:
         queries = _resume(args, fmt, queries)
         if not queries:
             return 0
+    # Every option is checked before anything starts: no browser download, no
+    # demo sub-user, and no existing output file emptied for a bad option.
+    _settings(args, pages=args.pages)
     _ready(args)
     progress = None
     if not args.verbose:
@@ -558,7 +565,8 @@ def _search(args) -> int:
                 done, stopped = _run(scraper, queries, writer, progress, failed, args.price_per_gb)
                 code = 3 if stopped else 0
                 queries = [q for q in queries if q.strip() and q.strip() not in done]
-                if not stopped or not args.patient or attempt == PATIENT_WAITS or not queries:
+                again = stopped == "breaker" and args.patient
+                if not again or attempt == PATIENT_WAITS or not queries:
                     break
                 print(
                     f"waiting {args.patient:g} min, then going on with the {len(queries)} "
@@ -573,11 +581,14 @@ def _search(args) -> int:
     return code or (4 if failed else 0)
 
 
-def _run(scraper, queries, writer, progress, failed: set[str], price) -> tuple[set[str], bool]:
-    """One scraper over the queries: the queries it answered, and whether the
-    breaker stopped it. `failed` keeps the queries whose last answer failed."""
+def _run(
+    scraper, queries, writer, progress, failed: set[str], price
+) -> tuple[set[str], str | None]:
+    """One scraper over the queries: the queries it answered with every page, and
+    what stopped it - "breaker", "proxy" (the account was refused, which waiting
+    does not change) or None. `failed` keeps the queries whose last answer failed."""
     done: set[str] = set()
-    stopped = False
+    stopped = None
     try:
         for record in scraper.run(queries):
             q = record["search_parameters"]["q"].strip()
@@ -586,6 +597,7 @@ def _run(scraper, queries, writer, progress, failed: set[str], price) -> tuple[s
                 failed.discard(q)
             else:
                 failed.add(q)
+                done.discard(q)  # a later page failed: the query is not complete
             writer.write(record)
             if progress is not None:
                 progress.record(record)
@@ -594,7 +606,7 @@ def _run(scraper, queries, writer, progress, failed: set[str], price) -> tuple[s
         # arrives wrapped here; its fix is one line too.
         if not hints.report(exc):
             print(f"stopped: {exc}", file=sys.stderr)
-        stopped = True
+        stopped = "proxy" if isinstance(exc, ProxyRefused) else "breaker"
     finally:
         not_run = getattr(scraper, "not_run", [])
         if not_run:
@@ -686,6 +698,16 @@ def _html_dir(folder: Path | None, worker: int | None) -> str | None:
     if folder is None:
         return None
     return str(folder if worker is None else folder / f"w{worker}")
+
+
+def _minutes(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected a number of minutes") from None
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError("must be a finite number, 0 or more")
+    return value
 
 
 def _non_negative(text: str) -> int:

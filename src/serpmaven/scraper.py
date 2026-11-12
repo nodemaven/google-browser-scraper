@@ -343,6 +343,8 @@ class Settings:
             low, high = getattr(self, name)
             if not 0 <= low <= high:
                 raise ValueError(f"{name} must be a (low, high) pair with 0 <= low <= high")
+        if self.location is not None:
+            browser.uule(self.location)  # a name it cannot encode fails here, not mid-run
 
 
 @dataclass

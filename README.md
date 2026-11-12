@@ -473,7 +473,7 @@ The defaults come from measurements in
 | `--gap LOW,HIGH` | 2,5 | Seconds between queries on one proxy IP |
 | `--pages N` | 1 | Result pages per query |
 | `--format` | from `-o`, else `jsonl` | `jsonl`, `json` or `csv`; `-o results.csv` picks `csv` by itself |
-| `--patient MINUTES` | | When Google refuses proxy IPs until the run stops, wait and go on with the queries left, up to 3 times |
+| `--patient MINUTES` | `0` (stop) | When Google refuses proxy IPs until the run stops, wait and go on with the queries left, up to 3 times |
 | `--price-per-gb` | | Your proxy price, to print the cost per 1000 pages |
 | `--no-resolve-links` | | Keep result links as Google `/goto` redirects |
 | `--save-html DIR` | | Keep every page's HTML, gzipped |

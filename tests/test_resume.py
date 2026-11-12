@@ -139,3 +139,88 @@ def test_the_output_format_follows_the_file_extension(name, fmt, tmp_path):
 
     assert cli._format_for(Path(name)) == fmt
     assert cli._format_for(None) == "jsonl"
+
+
+def test_a_query_that_failed_and_was_then_answered_counts_as_answered(tmp_path):
+    out = tmp_path / "out.jsonl"
+    out.write_text(
+        _line("tacos", "Error")
+        + _line("tacos")
+        + _line("ramen")
+        + _line("ramen", "Error", page=2)
+        + _line("pho")
+        + _line("pho", "Error")
+        + _line("udon", "Error")
+        + _line("udon")
+        + _line("udon", page=2),
+        encoding="utf-8",
+    )
+    assert answered(out) == {"tacos", "udon"}
+
+
+def test_a_record_with_a_unicode_line_separator_stays_one_record(tmp_path):
+    out = tmp_path / "out.jsonl"
+    record = json.loads(_line("pizza"))
+    record["organic_results"] = [{"snippet": "one two three\x85four"}]
+    out.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+    assert answered(out) == {"pizza"}
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf", "soon"])
+def test_patient_refuses_what_it_cannot_wait(value, capsys):
+    with pytest.raises(SystemExit):
+        cli._parser().parse_args(["search", "q", "--patient", value])
+    assert "--patient" in capsys.readouterr().err
+
+
+def test_patient_does_not_wait_out_a_refused_proxy_account(tmp_path, monkeypatch):
+    from serpmaven.scraper import ProxyRefused
+
+    class Refused(_Stopping):
+        def run(self, queries):
+            raise ProxyRefused("the proxy answered 407")
+            yield  # pragma: no cover
+
+    slept = []
+    monkeypatch.setattr(cli, "_build", lambda args, proxy, **kw: (Refused(0, []), ""))
+    monkeypatch.setattr(cli.time, "sleep", slept.append)
+    argv = ["search", "a", "--no-proxy", "-o", str(tmp_path / "o.jsonl"), "--patient", "1"]
+    assert cli.main(argv) == 3
+    assert slept == []
+
+
+def test_patient_asks_again_a_query_whose_later_page_failed(tmp_path, monkeypatch):
+    asked = []
+
+    class SecondPageFails(_Stopping):
+        def run(self, queries):
+            from serpmaven.scraper import ExitsRefused
+
+            for q in queries:
+                asked.append(q)
+                yield json.loads(_line(q))
+                if len(asked) == 1:
+                    yield json.loads(_line(q, "Error", page=2))
+                    raise ExitsRefused("6 exits in a row refused or unreachable")
+                yield json.loads(_line(q, page=2))
+
+    monkeypatch.setattr(cli, "_build", lambda args, proxy, **kw: (SecondPageFails(9, []), ""))
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    argv = ["search", "a", "--no-proxy", "--pages", "2", "-o", str(tmp_path / "o.jsonl")]
+    assert cli.main([*argv, "--patient", "1"]) == 0
+    assert asked == ["a", "a"]
+
+
+def test_a_bad_location_leaves_an_existing_output_file_alone(tmp_path):
+    out = tmp_path / "out.jsonl"
+    out.write_text(_line("pizza"), encoding="utf-8")
+    argv = ["search", "q", "--no-proxy", "-o", str(out), "--location", "x" * 64]
+    assert cli.main(argv) == 1
+    assert out.read_text(encoding="utf-8") == _line("pizza")
+
+
+def test_settings_refuse_a_location_google_cannot_take():
+    from serpmaven.scraper import Settings
+
+    with pytest.raises(ValueError, match="location"):
+        Settings(location="x" * 64)
