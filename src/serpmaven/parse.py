@@ -111,7 +111,7 @@ def _is_google(url: str) -> bool:
 # -- blocks ------------------------------------------------------------------
 
 
-def _organic(root, page: str, base_url: str) -> list[dict[str, Any]]:
+def _organic(root, page: str, base_url: str) -> list[dict[str, Any]]:  # noqa: C901
     container = _by_id(root, "rso")
     if container is None:
         return []
@@ -326,7 +326,7 @@ def _place_facts(lines: list[str]) -> dict[str, str]:
     return facts
 
 
-def _local_results(root) -> list[dict[str, Any]]:
+def _local_results(root) -> list[dict[str, Any]]:  # noqa: C901
     """The map pack's places, in the order shown.
 
     Each place's details sit in one `rllt__details` block: a heading with the

@@ -72,7 +72,7 @@ class Pool:
     def stats(self) -> Stats:
         return merge_stats(s.stats for s in self._scrapers)
 
-    def run(self, queries: Iterable[str]) -> Iterator[dict[str, Any]]:
+    def run(self, queries: Iterable[str]) -> Iterator[dict[str, Any]]:  # noqa: C901
         """Yield records as workers produce them. Raises `ExitsRefused` after
         the pool has stopped if any worker's breaker tripped."""
         todo: queue.Queue[str] = queue.Queue()

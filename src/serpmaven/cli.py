@@ -440,7 +440,7 @@ def _ready(args, *, ask: bool = True) -> None:
         installer.ensure_browser(ask=ask)
 
 
-def _search(args) -> int:
+def _search(args) -> int:  # noqa: C901
     queries = list(args.queries)
     if args.file:
         try:

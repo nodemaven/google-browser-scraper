@@ -10,3 +10,8 @@ dist/
 *.jsonl
 *.html
 results*
+
+# Test coverage data
+.coverage
+.coverage.*
+htmlcov/

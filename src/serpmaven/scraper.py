@@ -294,7 +294,7 @@ class Settings:
     #: next run's `donors`.
     donors_out: str | None = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901
         engines.get(self.engine)
         ladder.pages(self.warmup)
         for name in ("pages", "max_queries_per_exit", "max_exits_per_query", "breaker"):
@@ -1150,7 +1150,7 @@ class Scraper:
 
     # -- one query -----------------------------------------------------------
 
-    def _query(
+    def _query(  # noqa: C901
         self, query: str, more: bool = True, settle: bool = True
     ) -> Iterator[dict[str, Any]]:
         s = self.settings
@@ -1548,7 +1548,7 @@ class Scraper:
     def _mint(self) -> Identity | None:
         return self._adopt(self._warm(pinned=False))
 
-    def _warm(self, pinned: bool) -> Identity:
+    def _warm(self, pinned: bool) -> Identity:  # noqa: C901
         """Launch a browser on a new sticky session and walk the warm-up ladder.
 
         Touches no scraper state beyond the relay decision, so it can run on a

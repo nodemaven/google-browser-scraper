@@ -34,10 +34,15 @@ jobs:
         run: |
           python -m ruff check .
           python -m ruff format --check .
+          python -m vulture
       # Everything runs offline: the browser tests drive a fake Google on
       # 127.0.0.1, and nothing here needs a proxy or a real search.
+      # Under coverage: the report lists what no test runs, and the build
+      # fails when the total drops below `fail_under` in pyproject.toml.
       - name: Test
-        run: python -m pytest -q
+        run: |
+          python -m coverage run -m pytest -q
+          python -m coverage report
       # The old names: no code of their own, so installing them next to this
       # build, with their dependency on serpmaven resolved against it, must give
       # the old commands running the new CLI.

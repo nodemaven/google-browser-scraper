@@ -190,7 +190,6 @@ def test_served_pages_come_over_http_with_the_browsers_cookies():
     assert first.timings["http"] >= 0 and s.inner.searched == []
     assert dict(client.sent[0][1])["cookie"] == "SID=browser"
     assert dict(client.sent[1][1])["cookie"] == "SID=browser; NID=2"
-    assert s.http_pages == 2
 
 
 def test_a_check_goes_to_the_browser_with_the_http_cookies_and_back():
@@ -458,7 +457,7 @@ def test_with_pages_over_http_off_every_page_is_the_browsers_but_links_are_still
     s._opened_served = True
     s.search("best running shoes", direct=True)
     s.search("cold brew", direct=True, hl="de")
-    assert client.sent == [] and s.http_pages == 0
+    assert client.sent == []
     links = s.link_client()
     assert links is not None and links._proxy_url == "http://127.0.0.1:1"
     asked = Client([Response("<html></html>", status=302)])

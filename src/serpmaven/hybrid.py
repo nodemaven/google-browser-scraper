@@ -330,7 +330,6 @@ class HybridSession:
         #: A new exit's first search goes through the browser: the HTTP side
         #: with a copied profile's cookies is refused on an exit's first query.
         self._opened_served = False
-        self.http_pages = 0
 
     @property
     def profile_dir(self) -> str | None:
@@ -533,7 +532,6 @@ class HybridSession:
             # A long series clears the run's count of exits that stepped back,
             # even when it never ends in a check (a capped or retired exit).
             self._headers.worked()
-        self.http_pages += 1
         self._last_source = "http"
         self._last = (query, page, html)
         return Fetched(

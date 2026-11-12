@@ -52,7 +52,7 @@ nodemaven = ["nodemaven>=0.1.5"]
 # CloakBrowser's patched Chromium; downloads its own binary on first use.
 cloak = ["cloakbrowser>=0.5"]
 all = ["nodemaven>=0.1.5", "cloakbrowser>=0.5"]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "coverage>=7.6", "vulture>=2.14"]
 
 [project.scripts]
 serpmaven = "serpmaven.cli:main"
@@ -74,4 +74,29 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP"]
+select = ["E", "F", "W", "I", "B", "UP", "C901"]
+
+# A function past this many paths gets split before it grows further. The
+# functions marked `noqa: C901` are over it already and are next to be split.
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.coverage.run]
+source = ["serpmaven"]
+
+[tool.coverage.report]
+# The suite covers about 90%; a change that adds untested code fails CI.
+fail_under = 88
+show_missing = true
+skip_covered = true
+
+[tool.vulture]
+paths = ["src/serpmaven"]
+min_confidence = 60
+# Called by the standard library (http.server, urllib), or read by the tests as
+# the relay's own account of what it did.
+ignore_names = [
+    "do_GET", "log_message", "server_version",
+    "proxy_open", "redirect_request",
+    "tunnels", "failures", "blocked",
+]
