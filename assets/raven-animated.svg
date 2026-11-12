@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SERP Maven">
+<style>
+.hd{transform-box:view-box;transform-origin:35px 25px;animation:tilt 5s ease-in-out infinite}
+.ey{transform-box:fill-box;transform-origin:center;animation:blink 5s linear infinite}
+@keyframes tilt{0%,38%{transform:rotate(0)}46%,56%{transform:rotate(22deg)}50%{transform:rotate(17deg)}64%,100%{transform:rotate(0)}}
+@keyframes blink{0%,74%{transform:scaleY(1)}76%{transform:scaleY(.1)}78%,84%{transform:scaleY(1)}86%{transform:scaleY(.1)}88%,100%{transform:scaleY(1)}}
+@media (prefers-reduced-motion:reduce){.hd,.ey{animation:none}}
+</style>
+<path fill="#0a0a0a" d="M30.6 21.6 Q21.5 27.5 17.6 38.5 L4.5 59.5 L16.8 53.8 L29.5 48.6 Q44.5 42.5 46.6 25 Z"/><circle cx="37" cy="23" r="7.5" fill="#0a0a0a"/>
+<g class="hd"><g fill="#0a0a0a"><circle cx="38" cy="20" r="9"/><path d="M42.4 12.4 Q54.5 14.5 61.5 22.5 L45 25.6 Z"/></g><circle class="ey" cx="40.6" cy="17.4" r="2.1" fill="#2f6bff"/></g>
+</svg>
