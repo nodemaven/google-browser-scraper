@@ -285,6 +285,7 @@ def test_mcp_handshake_and_tool_listing(worker):
     tools = rpc(server, "tools/list")["result"]["tools"]
     assert [t["name"] for t in tools] == ["google_search"]
     assert tools[0]["inputSchema"]["required"] == ["query"]
+    assert tools[0]["annotations"] == {"readOnlyHint": True, "openWorldHint": True}
     assert rpc(server, "ping")["result"] == {}
 
 
@@ -323,6 +324,40 @@ def test_mcp_tool_call_takes_hl_and_gl(worker):
     bad_args = {"query": "q", "gl": "1"}
     bad = rpc(server, "tools/call", {"name": "google_search", "arguments": bad_args})
     assert bad["result"]["isError"] is True
+
+
+def test_mcp_tool_call_takes_a_link_limit(worker):
+    server = McpServer(worker, stdout=io.StringIO())
+    args = {"query": "shoes", "links": 0}
+    reply = rpc(server, "tools/call", {"name": "google_search", "arguments": args})
+    assert reply["result"]["isError"] is False
+    assert worker.fake.locales[-1] == {"links": 0}
+    rpc(server, "tools/call", {"name": "google_search", "arguments": {"query": "shoes"}})
+    assert worker.fake.locales[-1] == {}
+    for bad in (-1, "3", True):
+        args = {"query": "q", "links": bad}
+        reply = rpc(server, "tools/call", {"name": "google_search", "arguments": args})
+        assert reply["result"]["isError"] is True
+
+
+def test_mcp_result_without_a_link_carries_its_site():
+    from serpmaven.mcp import compact
+
+    organic = [
+        {"position": 1, "title": "T", "link": None, "displayed_link": "https://a.example › guides"},
+        {
+            "position": 2,
+            "title": "U",
+            "link": "https://b.example/x",
+            "displayed_link": "https://b.example",
+        },
+        {"position": 3, "title": "V", "link": None},
+    ]
+    assert compact([{"organic_results": organic}])["results"] == [
+        {"position": 1, "title": "T", "site": "https://a.example"},
+        {"position": 2, "title": "U", "link": "https://b.example/x"},
+        {"position": 3, "title": "V"},
+    ]
 
 
 def test_mcp_errors(worker):
