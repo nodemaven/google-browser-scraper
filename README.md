@@ -503,6 +503,16 @@ Not a free Google Search API, and not a guarantee that every proxy IP will
 work. It is a browser-based collector that makes failures explicit, drops proxy IPs
 Google refuses, and tells you what each page cost.
 
+## Usage ping
+
+`search`, `serve` and `mcp` send one anonymous request when they start: the serpmaven
+version, operating system, Python version, command, the kind of proxy (`nodemaven`,
+`url` or `none`, never the proxy itself) and a random id kept in the config folder so a
+machine counts once. No query, result, address or login is sent, it does not go through
+your proxy, and a failure never affects the run. Turn it off with
+`SERPMAVEN_NO_TELEMETRY=1` or `DO_NOT_TRACK=1`. The receiving code is in
+[`usage-endpoint/`](usage-endpoint/).
+
 ## Status
 
 Early. The `cloak` engine (`--engine cloak`) is experimental; `patchright` is
