@@ -104,7 +104,7 @@ def test_a_missing_browser_is_one_line_not_a_traceback(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_build", lambda args, proxy, **kw: (NoBrowser(), ""))
     assert cli.main(["search", "q", "--no-proxy"]) == 1
     err = capsys.readouterr().err
-    assert "error: the browser is not installed. Run: patchright install chromium" in err
+    assert "error: the browser is not installed. Run: serpmaven install" in err
     assert "Traceback" not in err
 
 
@@ -362,3 +362,53 @@ def test_plain_http_is_one_request_per_connection():
     assert answer.endswith(b"ok")
     head = seen[0].lower()
     assert "connection: close" in head and "keep-alive" not in head
+
+
+class _ReloadingPage:
+    """A page whose first goto is cut short by Google's check page loading
+    `then` from its own script."""
+
+    def __init__(self, then):
+        self.then = then
+        self.url = "about:blank"
+        self.loads = []
+
+    def goto(self, url, **kwargs):
+        raise Exception(
+            f'Page.goto: Navigation to "{url}" is interrupted by another '
+            f'navigation to "{self.then}"'
+        )
+
+    def wait_for_load_state(self, state, **kwargs):
+        self.loads.append(state)
+        self.url = self.then
+
+    def query_selector_all(self, selector):
+        return []
+
+    def wait_for_selector(self, *args, **kwargs):
+        return None
+
+    def content(self):
+        return "<html>results</html>"
+
+
+def test_google_reloading_its_results_page_is_not_a_failed_search():
+    from serpmaven.browser import BrowserSession
+
+    session = BrowserSession(None)
+    then = "https://www.google.com/search?q=best+running+shoes&hl=en"
+    session.page = _ReloadingPage(then)
+    fetched = session.search("best running shoes", direct=True)
+    assert session.page.loads == ["domcontentloaded"]
+    assert fetched.url == then and fetched.status is None
+    assert fetched.html == "<html>results</html>"
+
+
+def test_a_navigation_taken_over_by_another_page_still_fails():
+    from serpmaven.browser import BrowserSession
+
+    session = BrowserSession(None)
+    session.page = _ReloadingPage("https://trends.google.com/trends/?hl=en")
+    with pytest.raises(Exception, match="interrupted"):
+        session.search("best running shoes", direct=True)

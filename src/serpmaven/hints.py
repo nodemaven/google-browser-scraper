@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import sys
 
-NO_BROWSER = (
-    "the browser is not installed. Run: patchright install chromium (then run this command again)"
-)
+NO_BROWSER = "the browser is not installed. Run: serpmaven install (then run this command again)"
 NO_DISPLAY = (
     "no display found, and the browser runs with a window. On a Linux server "
     "run it under a virtual display: sudo apt install xvfb, then "
@@ -19,7 +17,7 @@ NO_DISPLAY = (
 )
 NO_SYSTEM_LIBS = (
     "the browser cannot start: system libraries are missing. Run: "
-    "patchright install-deps chromium (needs sudo)"
+    "serpmaven install --with-deps (needs sudo)"
 )
 
 
