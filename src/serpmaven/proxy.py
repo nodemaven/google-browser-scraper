@@ -87,11 +87,11 @@ class ProxyTemplate:
 
 
 class NodeMavenSource:
-    """NodeMaven's gateway, built by the `nodemaven` SDK from the environment.
+    """NodeMaven's gateway, built by the `nodemaven` SDK.
 
-    Reads NODEMAVEN_LOGIN and NODEMAVEN_PASSWORD - the Proxy Username and Proxy
-    Password from the dashboard - so credentials never pass through the
-    command line or shell history.
+    Takes the Proxy Username and Proxy Password from the dashboard out of
+    NODEMAVEN_LOGIN and NODEMAVEN_PASSWORD, or from `serpmaven login`, so
+    credentials never pass through the command line or shell history.
     """
 
     sticky = True
@@ -101,12 +101,17 @@ class NodeMavenSource:
             from nodemaven import Proxy
         except ImportError as exc:  # pragma: no cover - depends on the extra
             raise RuntimeError(
-                "the NodeMaven source needs the SDK: pip install 'serpmaven[nodemaven]'"
+                "the NodeMaven source needs the SDK: pip install --upgrade serpmaven"
             ) from exc
-        login = os.environ.get("NODEMAVEN_LOGIN")
-        password = os.environ.get("NODEMAVEN_PASSWORD")
-        if not login or not password:
-            raise RuntimeError("set NODEMAVEN_LOGIN and NODEMAVEN_PASSWORD in the environment")
+        from . import config
+
+        credentials = config.nodemaven_credentials()
+        if credentials is None:
+            raise RuntimeError(
+                "no NodeMaven proxy login: run `serpmaven login`, or set NODEMAVEN_LOGIN "
+                "and NODEMAVEN_PASSWORD"
+            )
+        login, password = credentials
         if country:
             params["country"] = country
         self._proxy = Proxy(login=login, password=password, **params)

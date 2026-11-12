@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "google-browser-scraper"
-version = "0.2.2"
+version = "0.2.3"
 description = "Renamed to serpmaven (SERP Maven). Installing this installs serpmaven and keeps the old command and import working."
 readme = "README.md"
 license = "MIT"
@@ -19,13 +19,13 @@ classifiers = [
     "Development Status :: 7 - Inactive",
     "Programming Language :: Python :: 3",
 ]
-dependencies = ["serpmaven>=0.2.2"]
+dependencies = ["serpmaven>=0.2.3"]
 
 [project.optional-dependencies]
-nodemaven = ["serpmaven[nodemaven]>=0.2.2"]
-cloak = ["serpmaven[cloak]>=0.2.2"]
-all = ["serpmaven[all]>=0.2.2"]
-dev = ["serpmaven[dev]>=0.2.2"]
+nodemaven = ["serpmaven[nodemaven]>=0.2.3"]
+cloak = ["serpmaven[cloak]>=0.2.3"]
+all = ["serpmaven[all]>=0.2.3"]
+dev = ["serpmaven[dev]>=0.2.3"]
 
 [project.scripts]
 google-browser-scraper = "google_browser_scraper:main"

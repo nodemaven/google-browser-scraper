@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from . import __version__, browser, engines, env, hints, warmup
+from . import __version__, browser, config, engines, env, hints, installer, warmup
 from .classify import classify
 from .output import WRITERS, open_writer, use_utf8
 from .parse import parse_serp
@@ -105,6 +105,32 @@ def _parser(prog: str = "serpmaven") -> argparse.ArgumentParser:
     doctor.add_argument("--channel")
     doctor.add_argument("--browser-arg", action="append", default=[], dest="browser_args")
     doctor.set_defaults(handler=_doctor)
+
+    login = sub.add_parser(
+        "login",
+        help="save your proxy login once, so later runs need no flags",
+        description="Save a proxy login for later runs. Without --proxy it asks for the "
+        "NodeMaven Proxy Username and Proxy Password from the dashboard. The file is "
+        "readable by your user only; the password in it is not encrypted.",
+    )
+    login.add_argument(
+        "--proxy",
+        help="save this proxy URL instead (any provider, with a {session} placeholder)",
+    )
+    login.set_defaults(handler=_login)
+
+    logout = sub.add_parser("logout", help="delete the saved proxy login")
+    logout.set_defaults(handler=_logout)
+
+    install = sub.add_parser(
+        "install", help="download the browser (about 150 MB, once per machine)"
+    )
+    install.add_argument(
+        "--with-deps",
+        action="store_true",
+        help="also install the system libraries it needs (Linux; needs sudo)",
+    )
+    install.set_defaults(handler=_install)
     return parser
 
 
@@ -118,7 +144,8 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
     source.add_argument(
         "--nodemaven",
         action="store_true",
-        help="NodeMaven gateway from NODEMAVEN_LOGIN / NODEMAVEN_PASSWORD",
+        help="NodeMaven gateway, with the login from `serpmaven login` or "
+        "NODEMAVEN_LOGIN / NODEMAVEN_PASSWORD (the default once a NodeMaven login is saved)",
     )
     source.add_argument(
         "--nodemaven-demo",
@@ -301,21 +328,19 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
 @contextmanager
 def _proxy_source(args) -> Iterator[Any]:
     """One proxy source per run, shared by every worker; a demo sub-user is deleted on exit."""
-    if args.country and not (args.nodemaven or args.nodemaven_demo):
+    kind, url = _source_kind(args)
+    if args.country and kind not in ("nodemaven", "nodemaven-demo"):
         raise ValueError(
-            "--country only applies to --nodemaven / --nodemaven-demo; put the country "
-            "in your provider's proxy URL instead"
+            "--country only applies to NodeMaven; put the country in your provider's "
+            "proxy URL instead"
         )
-    if args.nodemaven:
+    if kind == "nodemaven":
         proxy = NodeMavenSource(country=args.country)
-    elif args.nodemaven_demo:
+    elif kind == "nodemaven-demo":
         proxy = NodeMavenDemoSource(country=args.country, traffic_limit_mb=args.traffic_limit_mb)
-    elif args.no_proxy:
+    elif kind == "none":
         proxy = None
     else:
-        url = args.proxy or env.get("PROXY")
-        if not url:
-            raise ValueError("give --proxy, --nodemaven, --nodemaven-demo or --no-proxy")
         proxy = ProxyTemplate(url)
     if proxy is not None and not proxy.sticky:
         print(
@@ -327,6 +352,27 @@ def _proxy_source(args) -> Iterator[Any]:
         yield proxy
     finally:
         _cleanup_subuser(proxy, args.keep_subuser)
+
+
+def _source_kind(args) -> tuple[str, str | None]:
+    """Which proxy to use: a flag, then the environment, then `serpmaven login`."""
+    if args.nodemaven:
+        return "nodemaven", None
+    if args.nodemaven_demo:
+        return "nodemaven-demo", None
+    if args.no_proxy:
+        return "none", None
+    url = args.proxy or env.get("PROXY")
+    if url:
+        return "url", url
+    if config.nodemaven_credentials() is not None:
+        return "nodemaven", None
+    url = config.saved_proxy()
+    if url:
+        return "url", url
+    raise ValueError(
+        "no proxy: run `serpmaven login` once, or give --proxy, --nodemaven or --no-proxy"
+    )
 
 
 def _build(
@@ -387,6 +433,13 @@ def _build(
     return Scraper(proxy, settings, on_event=log), described
 
 
+def _ready(args, *, ask: bool = True) -> None:
+    """Fail early on what would only fail after minutes: no proxy, no browser."""
+    _source_kind(args)
+    if args.engine == "patchright" and not args.channel:
+        installer.ensure_browser(ask=ask)
+
+
 def _search(args) -> int:  # noqa: C901
     queries = list(args.queries)
     if args.file:
@@ -396,6 +449,7 @@ def _search(args) -> int:  # noqa: C901
             raise ValueError(f"query file not found: {args.file} (one query per line)") from None
     if not any(q.strip() for q in queries):
         raise ValueError("no queries given")
+    _ready(args)
     progress = None
     if not args.verbose:
         total = sum(1 for q in queries if q.strip())
@@ -441,6 +495,7 @@ def _search(args) -> int:  # noqa: C901
 def _serve(args) -> int:
     from .server import Worker, serve
 
+    _ready(args)
     progress = None if args.verbose else Progress(breaker=Settings().breaker)
     with _proxy_source(args) as proxy:
         worker = Worker(
@@ -454,6 +509,8 @@ def _mcp(args) -> int:
     from .mcp import McpServer
     from .server import Worker
 
+    # stdin is the MCP client's, so nobody can be asked: a missing browser is an error.
+    _ready(args, ask=False)
     progress = None if args.verbose else Progress(breaker=Settings().breaker)
     with _proxy_source(args) as proxy:
         worker = Worker(
@@ -489,6 +546,9 @@ def _parse(args) -> int:
 
 def _doctor(args) -> int:
     from .doctor import FAIL, assess, read_fingerprint
+
+    if args.engine == "patchright" and not args.channel:
+        installer.ensure_browser()
 
     browser_args = tuple(args.browser_args) + tuple(shlex.split(env.get("BROWSER_ARGS", "")))
     fp = read_fingerprint(
@@ -533,3 +593,44 @@ def _pair(text: str) -> tuple[float, float]:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
+
+
+def _login(args, *, prompt=input, secret=None) -> int:
+    if args.proxy:
+        ProxyTemplate(args.proxy)  # refuse a malformed URL before saving it
+        where = config.save({"proxy": args.proxy})
+        print(f"saved the proxy URL to {where}")
+        return 0
+    if not installer.interactive() and prompt is input:
+        raise ValueError(
+            "run `serpmaven login` in a terminal to type the login, or save a proxy URL with "
+            "`serpmaven login --proxy URL`"
+        )
+    if secret is None:
+        import getpass
+
+        secret = getpass.getpass
+    print("NodeMaven dashboard -> Proxy Username and Proxy Password.")
+    login = prompt("Proxy Username: ").strip()
+    password = secret("Proxy Password (not shown): ").strip()
+    if not login or not password:
+        raise ValueError("both the username and the password are needed")
+    where = config.save({"nodemaven_login": login, "nodemaven_password": password})
+    print(f"saved to {where}, readable by your user only")
+    print('next: serpmaven search "best running shoes" -o results.jsonl')
+    return 0
+
+
+def _logout(args) -> int:
+    if config.delete():
+        print(f"deleted {config.path()}")
+    else:
+        print("no saved login")
+    return 0
+
+
+def _install(args) -> int:
+    code = installer.install(with_deps=args.with_deps)
+    if code == 0:
+        print("browser installed; check it with: serpmaven doctor")
+    return code
