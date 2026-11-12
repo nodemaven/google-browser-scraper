@@ -532,4 +532,4 @@ engine actually gets served, not whether it got lucky once.
 
 [MIT](https://github.com/nodemaven/serpmaven/blob/main/LICENSE)
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/raven-dark.svg"><img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/raven.svg" alt="SERP Maven raven" height="64"></picture><br><sub>SERP Maven by <a href="https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=footer">NodeMaven</a></sub></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/raven-animated-dark.svg"><img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/raven-animated.svg" alt="SERP Maven raven" height="64"></picture><br><sub>SERP Maven by <a href="https://nodemaven.com/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=footer">NodeMaven</a></sub></p>
