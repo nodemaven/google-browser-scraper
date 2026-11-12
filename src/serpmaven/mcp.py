@@ -35,7 +35,9 @@ DEFAULT_LINKS = 5
 TOOL = {
     "name": "google_search",
     "title": "Google search",
-    # It reads the web and changes nothing: clients may run it without asking.
+    # A call reads Google and changes nothing of the user's: its browser profiles
+    # are temporary, and a demo sub-user is made once when the server starts,
+    # not by a call. So clients may run it without asking.
     "annotations": {"readOnlyHint": True, "openWorldHint": True},
     "description": (
         "Search Google through a real browser and the configured proxy. Returns "
@@ -68,9 +70,9 @@ TOOL = {
                 "minimum": 0,
                 "description": (
                     "How many of the top results on each page need their full URL "
-                    "(default: 5). Each URL is a separate lookup, so a smaller "
-                    "number answers sooner; 0 skips them. A result without a URL "
-                    "carries its site instead."
+                    "(default: 5, or the server's --links). Each URL is a separate "
+                    "lookup, so a smaller number answers sooner; 0 skips them. A "
+                    "result without a URL carries its site when Google shows one."
                 ),
             },
         },

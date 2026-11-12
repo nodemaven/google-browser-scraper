@@ -313,6 +313,8 @@ class Settings:
             raise ValueError("clone_max_age must be positive")
         if self.restart_every < 0:
             raise ValueError("restart_every must be 0 or more")
+        if self.links is not None and self.links < 0:
+            raise ValueError("links must be 0 or more")
         if self.renew_donors_every < 0:
             raise ValueError("renew_donors_every must be 0 or more")
         if self.clones and (self.donors or self.renew_donors_every):

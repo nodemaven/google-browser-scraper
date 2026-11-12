@@ -342,7 +342,7 @@ It uses the login saved with `serpmaven login`; or add
 "People also ask", related searches, and the AI Overview and map places when
 Google shows them. `links` is how many of the top results get their full URL
 (default 5, or `--links N` on the `mcp` command); fewer answers sooner, and a
-result without one carries its site.
+result without one carries its site when Google shows it.
 
 ## Docker
 
