@@ -347,6 +347,26 @@ class Settings:
             browser.uule(self.location)  # a name it cannot encode fails here, not mid-run
 
 
+def filter_params(s: Settings) -> dict[str, str]:
+    """What a record's `search_parameters` carry for these settings' location and
+    filters (`location`, `tbs`, `pws`, `nfpr`, `cr`, `lr`), as written there."""
+    shown = {
+        k: v
+        for k, v in browser.url_params(
+            s.location,
+            s.tbs,
+            personalized=s.personalized,
+            autocorrect=s.autocorrect,
+            cr=s.cr,
+            lr=s.lr,
+        ).items()
+        if k != "uule"
+    }
+    if s.location:
+        shown["location"] = s.location
+    return shown
+
+
 @dataclass
 class Template:
     """A served identity's browser profile, kept on disk to start copies from."""
@@ -1133,11 +1153,7 @@ class Scraper:
         )
 
     def _record_params(self) -> dict[str, str]:
-        s = self.settings
-        shown = {k: v for k, v in self._params.items() if k != "uule"}
-        if s.location:
-            shown["location"] = s.location
-        return shown
+        return filter_params(self.settings)
 
     def settle(self) -> None:
         """Run the upkeep the last `search(settle=False)` left, if any."""

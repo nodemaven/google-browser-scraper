@@ -154,9 +154,15 @@ def open_writer(fmt: str, stream: IO[str]):
         raise ValueError(f"format must be one of {', '.join(WRITERS)}, got {fmt!r}") from None
 
 
-def answered(path: Path, pages: int = 1) -> set[str]:
+#: The search_parameters that make two records answers to different searches.
+SAME_SEARCH = ("hl", "gl", "location", "tbs", "pws", "nfpr", "cr", "lr")
+
+
+def answered(path: Path, pages: int = 1, params: dict[str, Any] | None = None) -> set[str]:
     """The queries a JSON Lines output file already holds every page for, for a
-    run that resumes into it with `pages` pages per query. Each query counts by
+    run that resumes into it with `pages` pages per query and the language,
+    country, location and filters in `params` (records made with others are
+    another search and do not count). Each query counts by
     its latest attempt (a record for page 1 starts one): it is complete when every
     page so far succeeded and the last one is page `pages` or has no next page on
     Google. So a query that failed and was then answered is not asked again; one
@@ -174,6 +180,11 @@ def answered(path: Path, pages: int = 1) -> set[str]:
                 end += len(line)
                 try:
                     record = json.loads(line)
+                    asked = record["search_parameters"]
+                    if params is not None and any(
+                        asked.get(k) != params.get(k) for k in SAME_SEARCH
+                    ):
+                        continue
                     query = record["search_parameters"]["q"].strip()
                     page = record["search_parameters"].get("page", 1)
                     ok = record["search_metadata"]["status"] == "Success"

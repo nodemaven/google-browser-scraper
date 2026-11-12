@@ -9,7 +9,7 @@ from serpmaven.output import answered
 def _line(query, status="Success", page=1):
     record = {
         "search_metadata": {"status": status},
-        "search_parameters": {"q": query, "page": page},
+        "search_parameters": {"q": query, "page": page, "hl": "en"},
     }
     return json.dumps(record) + "\n"
 
@@ -243,3 +243,29 @@ def test_with_several_pages_a_query_cut_short_is_asked_again(tmp_path):
     )
     assert answered(out, pages=3) == {"short", "full"}
     assert answered(out, pages=1) == {"cut", "short", "full"}
+
+
+def test_resume_counts_only_answers_made_with_the_same_location_and_filters(tmp_path):
+    out = tmp_path / "out.jsonl"
+    austin = json.loads(_line("pizza"))
+    austin["search_parameters"]["location"] = "Austin,Texas,United States"
+    week = json.loads(_line("tacos"))
+    week["search_parameters"]["tbs"] = "qdr:w"
+    out.write_text(
+        _line("ramen") + json.dumps(austin) + "\n" + json.dumps(week) + "\n", encoding="utf-8"
+    )
+    plain = {"hl": "en", "gl": None}
+    assert answered(out, 1, plain) == {"ramen"}
+    assert answered(out, 1, {**plain, "location": "Austin,Texas,United States"}) == {"pizza"}
+    assert answered(out, 1, {"hl": "de", "gl": None}) == set()
+    assert answered(out) == {"ramen", "pizza", "tacos"}  # no params: any search
+
+
+def test_resume_on_the_command_line_compares_the_filters(tmp_path, monkeypatch):
+    recorder = _Recorder()
+    monkeypatch.setattr(cli, "_build", lambda args, proxy, **kw: (recorder, ""))
+    out = tmp_path / "out.jsonl"
+    out.write_text(_line("pizza"), encoding="utf-8")
+    argv = ["search", "pizza", "--no-proxy", "-o", str(out), "--resume", "--tbs", "qdr:w"]
+    assert cli.main(argv) == 0
+    assert recorder.asked == ["pizza"]

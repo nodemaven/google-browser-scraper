@@ -20,7 +20,15 @@ from .parse import parse_serp
 from .pool import Pool
 from .progress import Progress
 from .proxy import NodeMavenDemoSource, NodeMavenSource, ProxyTemplate
-from .scraper import DIRECT_MODES, RENEW_EVERY, ExitsRefused, ProxyRefused, Scraper, Settings
+from .scraper import (
+    DIRECT_MODES,
+    RENEW_EVERY,
+    ExitsRefused,
+    ProxyRefused,
+    Scraper,
+    Settings,
+    filter_params,
+)
 from .server import locale_problem
 
 
@@ -521,7 +529,10 @@ def _read_queries(args) -> list[str]:
 def _resume(args, fmt: str, queries: list[str]) -> list[str]:
     if args.output is None or fmt != "jsonl":
         raise ValueError("--resume needs --output FILE in the jsonl format")
-    done = answered(args.output, args.pages)
+    settings = _settings(args, pages=args.pages)
+    # Only records made with the same language, country, location and filters count.
+    same = {"hl": settings.hl, "gl": settings.gl, **filter_params(settings)}
+    done = answered(args.output, args.pages, same)
     total = sum(1 for q in queries if q.strip())
     left = [q for q in queries if q.strip() and q.strip() not in done]
     print(
