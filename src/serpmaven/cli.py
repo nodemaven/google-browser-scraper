@@ -14,7 +14,7 @@ from typing import Any
 
 from . import __version__, browser, config, engines, env, hints, installer, warmup
 from .classify import classify
-from .output import WRITERS, open_writer, use_utf8
+from .output import WRITERS, answered, open_writer, use_utf8
 from .parse import parse_serp
 from .pool import Pool
 from .progress import Progress
@@ -65,8 +65,26 @@ def _parser(prog: str = "serpmaven") -> argparse.ArgumentParser:
         metavar="N",
         help="proxy IPs to search on at once, one browser each (default 1)",
     )
-    search.add_argument("--format", choices=list(WRITERS), default="jsonl")
+    search.add_argument(
+        "--format",
+        choices=list(WRITERS),
+        help="output format (default: from the --output file's extension, else jsonl)",
+    )
     search.add_argument("-o", "--output", type=Path, help="output file (default stdout)")
+    search.add_argument(
+        "--resume",
+        action="store_true",
+        help="skip the queries the --output file already has results for and add to it "
+        "(jsonl); failed ones are asked again",
+    )
+    search.add_argument(
+        "--patient",
+        type=float,
+        default=0,
+        metavar="MINUTES",
+        help="when Google refuses proxy IPs until the run stops, wait this long and go on "
+        f"with the queries left, up to {PATIENT_WAITS} times (default: stop)",
+    )
     search.add_argument(
         "--price-per-gb",
         type=float,
@@ -312,6 +330,32 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         help="country the results are for, e.g. de; unset, Google picks it from the proxy IP",
     )
     p.add_argument(
+        "--location",
+        metavar="PLACE",
+        help='search as from this place, by its canonical name, e.g. "Austin,Texas,United States"',
+    )
+    p.add_argument(
+        "--tbs",
+        metavar="FILTER",
+        help="Google's tbs filter as it is, e.g. qdr:w for the past week",
+    )
+    p.add_argument(
+        "--no-personalization",
+        action="store_true",
+        help="results without personalization (pws=0)",
+    )
+    p.add_argument(
+        "--no-autocorrect",
+        action="store_true",
+        help="search a misspelt query as typed, not as Google corrects it (nfpr=1)",
+    )
+    p.add_argument(
+        "--cr", metavar="COUNTRIES", help="only documents from these countries, e.g. countryUS"
+    )
+    p.add_argument(
+        "--lr", metavar="LANGUAGES", help="only documents in these languages, e.g. lang_en"
+    )
+    p.add_argument(
         "--save-html",
         type=Path,
         metavar="DIR",
@@ -381,6 +425,8 @@ def _build(
     problem = locale_problem(args.hl, args.gl)
     if problem:
         raise ValueError(problem.replace("hl", "--hl", 1).replace("gl", "--gl", 1))
+    if args.location is not None:
+        browser.uule(args.location)  # refuses a name it cannot encode
     browser_args = tuple(args.browser_args) + tuple(shlex.split(env.get("BROWSER_ARGS", "")))
     settings = Settings(
         engine=args.engine,
@@ -408,6 +454,12 @@ def _build(
         resolve_links=not args.no_resolve_links,
         hl=args.hl,
         gl=args.gl,
+        location=args.location,
+        tbs=args.tbs,
+        personalized=not args.no_personalization,
+        autocorrect=not args.no_autocorrect,
+        cr=args.cr,
+        lr=args.lr,
         donors=tuple(browser.load_cookies(f) for f in args.cookies or ()),
         renew_donors_every=args.renew_cookies,
         donors_out=args.cookies_out,
@@ -440,7 +492,17 @@ def _ready(args, *, ask: bool = True) -> None:
         installer.ensure_browser(ask=ask)
 
 
-def _search(args) -> int:  # noqa: C901
+#: How many times `--patient` waits and goes on before the run gives up.
+PATIENT_WAITS = 3
+
+
+def _format_for(output: Path | None) -> str:
+    """The output format a file's extension names; JSON Lines otherwise."""
+    suffix = output.suffix.lower() if output else ""
+    return {".csv": "csv", ".json": "json"}.get(suffix, "jsonl")
+
+
+def _read_queries(args) -> list[str]:
     queries = list(args.queries)
     if args.file:
         try:
@@ -449,47 +511,100 @@ def _search(args) -> int:  # noqa: C901
             raise ValueError(f"query file not found: {args.file} (one query per line)") from None
     if not any(q.strip() for q in queries):
         raise ValueError("no queries given")
+    return queries
+
+
+def _resume(args, fmt: str, queries: list[str]) -> list[str]:
+    if args.output is None or fmt != "jsonl":
+        raise ValueError("--resume needs --output FILE in the jsonl format")
+    done = answered(args.output)
+    total = sum(1 for q in queries if q.strip())
+    left = [q for q in queries if q.strip() and q.strip() not in done]
+    print(
+        f"resume: {total - len(left)} of {total} queries already in {args.output}", file=sys.stderr
+    )
+    return left
+
+
+def _search(args) -> int:
+    fmt = args.format or _format_for(args.output)
+    queries = _read_queries(args)
+    if args.resume:
+        queries = _resume(args, fmt, queries)
+        if not queries:
+            return 0
     _ready(args)
     progress = None
     if not args.verbose:
         total = sum(1 for q in queries if q.strip())
         progress = Progress(total=total, breaker=Settings().breaker)
+    failed: set[str] = set()
+    code = 0
     with _proxy_source(args) as proxy:
-        if args.workers != 1:
-            scraper = Pool(
-                lambda i: _build(args, proxy, pages=args.pages, worker=i, progress=progress)[0],
-                args.workers,
-            )
-        else:
-            scraper, _ = _build(args, proxy, pages=args.pages, progress=progress)
-        stream = args.output.open("w", encoding="utf-8", newline="") if args.output else sys.stdout
-        writer = open_writer(args.format, stream)
-        failed, code = 0, 0
+        mode = "a" if args.resume else "w"
+        stream = args.output.open(mode, encoding="utf-8", newline="") if args.output else sys.stdout
+        writer = open_writer(fmt, stream)
         try:
-            for record in scraper.run(queries):
-                failed += record["search_metadata"]["status"] != "Success"
-                writer.write(record)
-                if progress is not None:
-                    progress.record(record)
-        except ExitsRefused as exc:
-            # A pool worker that failed on setup (no browser, no display)
-            # arrives wrapped here; its fix is one line too.
-            if not hints.report(exc):
-                print(f"stopped: {exc}", file=sys.stderr)
-            code = 3
+            for attempt in range(PATIENT_WAITS + 1):
+                if args.workers != 1:
+                    scraper = Pool(
+                        lambda i: _build(
+                            args, proxy, pages=args.pages, worker=i, progress=progress
+                        )[0],
+                        args.workers,
+                    )
+                else:
+                    scraper, _ = _build(args, proxy, pages=args.pages, progress=progress)
+                done, stopped = _run(scraper, queries, writer, progress, failed, args.price_per_gb)
+                code = 3 if stopped else 0
+                queries = [q for q in queries if q.strip() and q.strip() not in done]
+                if not stopped or not args.patient or attempt == PATIENT_WAITS or not queries:
+                    break
+                print(
+                    f"waiting {args.patient:g} min, then going on with the {len(queries)} "
+                    f"queries left ({attempt + 1} of {PATIENT_WAITS})",
+                    file=sys.stderr,
+                )
+                time.sleep(args.patient * 60)
         finally:
             writer.close()
-            not_run = getattr(scraper, "not_run", [])
-            if not_run:
-                print(f"not run: {len(not_run)} queries", file=sys.stderr)
             if args.output:
                 stream.close()
-            summary = scraper.stats.summary(args.price_per_gb)
-            if progress is not None:
-                progress.summary(summary)
-            else:
-                print("summary: " + json.dumps(summary), file=sys.stderr)
     return code or (4 if failed else 0)
+
+
+def _run(scraper, queries, writer, progress, failed: set[str], price) -> tuple[set[str], bool]:
+    """One scraper over the queries: the queries it answered, and whether the
+    breaker stopped it. `failed` keeps the queries whose last answer failed."""
+    done: set[str] = set()
+    stopped = False
+    try:
+        for record in scraper.run(queries):
+            q = record["search_parameters"]["q"].strip()
+            if record["search_metadata"]["status"] == "Success":
+                done.add(q)
+                failed.discard(q)
+            else:
+                failed.add(q)
+            writer.write(record)
+            if progress is not None:
+                progress.record(record)
+    except ExitsRefused as exc:
+        # A pool worker that failed on setup (no browser, no display)
+        # arrives wrapped here; its fix is one line too.
+        if not hints.report(exc):
+            print(f"stopped: {exc}", file=sys.stderr)
+        stopped = True
+    finally:
+        not_run = getattr(scraper, "not_run", [])
+        if not_run:
+            print(f"not run: {len(not_run)} queries", file=sys.stderr)
+        summary = scraper.stats.summary(price)
+        if progress is not None:
+            progress.summary(summary)
+        else:
+            print("summary: " + json.dumps(summary), file=sys.stderr)
+    return done, stopped
 
 
 def _serve(args) -> int:

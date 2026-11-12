@@ -317,6 +317,15 @@ def test_hl_and_gl_of_one_query_go_into_its_http_url():
     assert "hl=en" in client.sent[1][0] and "gl=" not in client.sent[1][0]
 
 
+def test_the_browsers_location_and_filters_go_into_the_http_url():
+    client = Client([Response(SERVED.html)])
+    inner = Inner()
+    inner.params = {"uule": "w+CAIQICIFQXVzdGlu", "tbs": "qdr:w"}
+    s, _ = session(client, inner=inner)
+    s.search("a b", direct=True)
+    assert "&uule=w+CAIQICIFQXVzdGlu&tbs=qdr:w" in client.sent[0][0]
+
+
 def test_curl_presents_the_newest_chrome_it_can_that_is_not_newer_than_the_browser(monkeypatch):
     import enum
     import sys

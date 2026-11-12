@@ -13,6 +13,7 @@ import io
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import IO, Any
 
 
@@ -59,6 +60,7 @@ def build_record(
     hl: str = "en",
     gl: str | None = None,
     timings: dict[str, float] | None = None,
+    params: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     ok = error is None and parsed is not None
     record: dict[str, Any] = {
@@ -81,6 +83,7 @@ def build_record(
     }
     if gl:
         record["search_parameters"]["gl"] = gl
+    record["search_parameters"].update(params or {})
     if timings:
         # Seconds per step of this page: home, type, load, ready, read, parse, links.
         record["search_metadata"]["timings"] = timings
@@ -149,3 +152,28 @@ def open_writer(fmt: str, stream: IO[str]):
         return WRITERS[fmt](stream)
     except KeyError:
         raise ValueError(f"format must be one of {', '.join(WRITERS)}, got {fmt!r}") from None
+
+
+def answered(path: Path) -> set[str]:
+    """The queries a JSON Lines output file already holds a results page for,
+    for a run that resumes into it. A query with a failed record is left out,
+    so it is asked again. A last line cut off by a killed run is removed from
+    the file, so the records appended after it stay one per line."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return set()
+    if data and not data.endswith(b"\n"):
+        data = data[: data.rfind(b"\n") + 1]
+        with path.open("r+b") as f:
+            f.truncate(len(data))
+    served, failed = set(), set()
+    for line in data.decode("utf-8", "replace").splitlines():
+        try:
+            record = json.loads(line)
+            query = record["search_parameters"]["q"].strip()
+            ok = record["search_metadata"]["status"] == "Success"
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        (served if ok else failed).add(query)
+    return served - failed

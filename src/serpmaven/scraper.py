@@ -227,6 +227,19 @@ class Settings:
     #: Country the results are for, as Google's `gl` (e.g. "us"); unset, Google
     #: picks it from the exit. Applies to results pages opened directly.
     gl: str | None = None
+    #: Where the results are searched from, as a canonical place name
+    #: ("Austin,Texas,United States"), sent as Google's `uule`.
+    location: str | None = None
+    #: Google's `tbs` filters as they are, e.g. "qdr:w" for the past week.
+    tbs: str | None = None
+    #: False sends `pws=0`: results without personalization.
+    personalized: bool = True
+    #: False sends `nfpr=1`: a misspelt query is searched as typed.
+    autocorrect: bool = True
+    #: Only documents from these countries (`cr`, e.g. "countryUS") or in these
+    #: languages (`lr`, e.g. "lang_en").
+    cr: str | None = None
+    lr: str | None = None
     #: Directory to keep every page's HTML in, gzipped, for debugging a parse.
     #: The pages carry the exit's location, so keep them out of anything public.
     save_html: str | None = None
@@ -1105,6 +1118,25 @@ class Scraper:
     def _gl(self) -> str | None:
         return self._locale.get("gl") or self.settings.gl
 
+    @property
+    def _params(self) -> dict[str, str]:
+        s = self.settings
+        return browser.url_params(
+            s.location,
+            s.tbs,
+            personalized=s.personalized,
+            autocorrect=s.autocorrect,
+            cr=s.cr,
+            lr=s.lr,
+        )
+
+    def _record_params(self) -> dict[str, str]:
+        s = self.settings
+        shown = {k: v for k, v in self._params.items() if k != "uule"}
+        if s.location:
+            shown["location"] = s.location
+        return shown
+
     def settle(self) -> None:
         """Run the upkeep the last `search(settle=False)` left, if any."""
         pending, self._unsettled = self._unsettled, None
@@ -1269,6 +1301,7 @@ class Scraper:
             elapsed=0.0,
             hl=self._hl(),
             gl=self._gl(),
+            params=self._record_params(),
             exit_info={"session": None},
             error=last_error or f"refused on {s.max_exits_per_query} exits: {reason}",
         )
@@ -1403,6 +1436,7 @@ class Scraper:
             url=fetched.url,
             hl=self._hl(),
             gl=self._gl(),
+            params=self._record_params(),
             elapsed=time.monotonic() - started,
             exit_info=identity.info(self.settings.warmup, page_bytes),
             parsed=parsed,
@@ -1448,6 +1482,7 @@ class Scraper:
             elapsed=0.0,
             hl=self._hl(),
             gl=self._gl(),
+            params=self._record_params(),
             exit_info=identity.info(self.settings.warmup),
             error=error,
         )
@@ -1536,6 +1571,7 @@ class Scraper:
                 input_mode=s.input,
                 hl=s.hl,
                 gl=s.gl,
+                params=self._params,
             ),
             relay,
             browser_proxy,
@@ -1605,6 +1641,7 @@ class Scraper:
                     input_mode=s.input,
                     hl=s.hl,
                     gl=s.gl,
+                    params=self._params,
                     **donor,
                 ),
                 relay,
