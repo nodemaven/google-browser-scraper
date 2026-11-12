@@ -3,7 +3,7 @@ import types
 
 import pytest
 
-from serpmaven.proxy import NodeMavenDemoSource, ProxyTemplate, new_session_id
+from serpmaven.proxy import NodeMavenDemoSource, NodeMavenSource, ProxyTemplate, new_session_id
 
 
 def test_session_placeholder_is_filled_per_identity():
@@ -57,7 +57,10 @@ class _FakeNodeMavenProxy:
     def __init__(self, login=None, password=None, **params):
         self.login, self.password, self.params = login, password, params
 
+    sessions = []
+
     def session(self, session_id):
+        type(self).sessions.append(session_id)
         return self
 
     def playwright(self):
@@ -112,8 +115,19 @@ def test_demo_source_provisions_a_sub_user_and_deletes_it_on_close(monkeypatch):
         "username": username,
         "password": password,
     }
+    assert _FakeNodeMavenProxy.sessions[-1] == "serpmavenabc"
     source.close()
     assert deleted == ["sub-1"]
+
+
+def test_nodemaven_session_ids_carry_the_scraper_tag_and_other_proxies_do_not(monkeypatch):
+    _install_fake_nodemaven(monkeypatch, [], [])
+    monkeypatch.setenv("NODEMAVEN_LOGIN", "user")
+    monkeypatch.setenv("NODEMAVEN_PASSWORD", "pass")
+    NodeMavenSource(country="us").for_session("0a1b2c3d4e5f")
+    assert _FakeNodeMavenProxy.sessions[-1] == "serpmaven0a1b2c3d4e5f"
+    plain = ProxyTemplate("http://u-{session}:p@gate.example.com:7000").for_session("0a1b2c")
+    assert plain["username"] == "u-0a1b2c"
 
 
 def test_demo_source_close_with_keep_does_not_delete(monkeypatch):
