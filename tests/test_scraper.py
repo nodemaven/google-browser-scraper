@@ -407,6 +407,25 @@ def test_relay_is_required_for_engines_that_cannot_authenticate():
         s.prewarm()
 
 
+def test_without_the_relay_the_browser_gets_the_proxy_itself_and_traffic_is_not_counted():
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), use_relay=False)
+    s = scraper([[SERVED]], settings)
+    list(s.run(["a"]))
+    assert FakeSession.opened[0].proxy["server"] == "http://gate.example.com:7000"
+    assert FakeRelay.by_address == {}
+    assert s.stats.counted is False
+
+
+def test_the_browser_starts_on_the_channel_and_timezone_asked_for():
+    settings = Settings(
+        gap_seconds=(0, 0), dwell_seconds=(0, 0), channel="chrome", timezone_id="Europe/Berlin"
+    )
+    list(scraper([[SERVED]], settings).run(["a"]))
+    options = FakeSession.opened[0].options
+    assert options["channel"] == "chrome"
+    assert options["timezone_id"] == "Europe/Berlin"
+
+
 def test_save_html_keeps_every_page_and_names_it_in_the_record(tmp_path):
     settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), save_html=str(tmp_path))
     records = list(scraper([[REFUSED], [SERVED]], settings).run(["Best Shoes!"]))

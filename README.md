@@ -313,6 +313,8 @@ curl "http://127.0.0.1:8000/search.json?q=best+running+shoes"
 In PowerShell, call `curl.exe` (plain `curl` there is another command).
 
 - Same record format as above
+- `--host` and `--port` set the address (default `127.0.0.1:8000`)
+- `pages=N` returns N result pages for one query as a JSON array of records, up to `--max-pages` (default 3); more is answered 400
 - `hl` (language) and `gl` (country) per request: `/search.json?q=...&hl=de&gl=at`
 - `--prewarm` finds a proxy IP Google serves at startup, so the first request does not wait for a warm-up; `/health` answers 503 `warming` until then
 - Results pages are read one at a time on one held proxy IP; a page's links resolve in the background, so the next request starts while the last one waits for its links
@@ -444,6 +446,8 @@ The defaults come from measurements in
 
 | Option | Default | What it does |
 |---|---|---|
+| `-f`, `--file FILE` | | Queries from FILE, one per line |
+| `-o`, `--output FILE` | stdout | Where the results are written |
 | `--workers N` | 1 | Search on N proxy IPs at once, one browser each, from one list of queries |
 | `--max-per-exit N` | 300 | Queries before a served proxy IP is retired |
 | `--restart-every N` | 50 | Results pages the browser rendered before it restarts on the same profile and proxy IP; `0` never |
@@ -466,9 +470,13 @@ The defaults come from measurements in
 | `--price-per-gb` | | Your proxy price, to print the cost per 1000 pages |
 | `--no-resolve-links` | | Keep result links as Google `/goto` redirects |
 | `--save-html DIR` | | Keep every page's HTML, gzipped |
-
-`-v` prints every step as JSON instead, and the summary as one JSON line.
-`serpmaven search --help` lists the rest.
+| `--channel NAME` | | Browser channel, e.g. `chrome` for the installed Chrome |
+| `--timezone ZONE` | | IANA timezone for the browser, e.g. `Europe/Berlin` |
+| `--browser-arg=ARG` | | Extra Chromium switch, e.g. `--browser-arg=--disable-gpu`; repeat for more, or set `SERPMAVEN_BROWSER_ARGS` |
+| `--headless` | | Run the browser without a window; `serpmaven doctor --headless` shows what a website sees then |
+| `--no-relay` | | Hand the proxy to the browser directly: traffic is not counted, and every results page is fetched in the browser |
+| `--stop-after-read` | | Experimental: leave each query's last results page once it is read |
+| `-v`, `--verbose` | | Print every step as a JSON line instead of the progress line; the run ends with `summary: {...}` |
 
 </details>
 
