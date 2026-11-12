@@ -204,6 +204,8 @@ the traffic used, warm-up apart from the pages.
 A file of queries, one per line: `serpmaven search -f queries.txt -o results.jsonl`.
 `--proxy`, `--nodemaven`, `SERPMAVEN_PROXY` and `NODEMAVEN_LOGIN` / `NODEMAVEN_PASSWORD`
 win over the saved login; `serpmaven logout` deletes it.
+Through NodeMaven, each proxy IP's session id starts with `serpmaven`, so the
+traffic shows up as the scraper's on your account; other proxies get the plain id.
 
 > [!TIP]
 > 🎁 **2 GB of free traffic.** No NodeMaven account yet? [Sign up](https://dashboard.nodemaven.com/accounts/signup/?utm_source=github&utm_medium=readme&utm_campaign=google_browser_scraper&utm_content=signup_promo) and enter the code **GOOGLENM**. Once per account.
@@ -314,7 +316,7 @@ In PowerShell, call `curl.exe` (plain `curl` there is another command).
 
 - Same record format as above
 - `--host` and `--port` set the address (default `127.0.0.1:8000`)
-- `pages=N` returns N result pages for one query as a JSON array of records, up to `--max-pages` (default 3); more is answered 400
+- `pages=N` returns N result pages for one query, up to `--max-pages` (default 3); more is answered 400. One page is a single record, more are a JSON array of records
 - `hl` (language) and `gl` (country) per request: `/search.json?q=...&hl=de&gl=at`
 - `--prewarm` finds a proxy IP Google serves at startup, so the first request does not wait for a warm-up; `/health` answers 503 `warming` until then
 - Results pages are read one at a time on one held proxy IP; a page's links resolve in the background, so the next request starts while the last one waits for its links
@@ -338,9 +340,11 @@ In PowerShell, call `curl.exe` (plain `curl` there is another command).
 
 It uses the login saved with `serpmaven login`; or add
 `"env": {"NODEMAVEN_LOGIN": "...", "NODEMAVEN_PASSWORD": "..."}`. One tool,
-`google_search(query, pages, hl, gl)`. It returns the organic results,
+`google_search(query, pages, hl, gl, links)`. It returns the organic results,
 "People also ask", related searches, and the AI Overview and map places when
-Google shows them.
+Google shows them. `links` is how many of the top results get their full URL
+(default 5, or `--links N` on the `mcp` command); fewer answers sooner, and a
+result without one carries its site when Google shows it.
 
 ## Docker
 
@@ -476,6 +480,7 @@ The defaults come from measurements in
 | `--patient MINUTES` | `0` (stop) | When Google refuses proxy IPs until the run stops, wait and go on with the queries left, up to 3 times |
 | `--price-per-gb` | | Your proxy price, to print the cost per 1000 pages |
 | `--no-resolve-links` | | Keep result links as Google `/goto` redirects |
+| `--links N` | all; `mcp` 5 | Resolve the links of the first N organic results on each page only; the rest keep their `/goto` redirect. Fewer answers sooner |
 | `--save-html DIR` | | Keep every page's HTML, gzipped |
 | `--channel NAME` | | Browser channel, e.g. `chrome` for the installed Chrome |
 | `--timezone ZONE` | | IANA timezone for the browser, e.g. `Europe/Berlin` |
@@ -483,7 +488,7 @@ The defaults come from measurements in
 | `--headless` | | Run the browser without a window; `serpmaven doctor --headless` shows what a website sees then |
 | `--no-relay` | | Hand the proxy to the browser directly: traffic is not counted, and every results page is fetched in the browser |
 | `--stop-after-read` | | Experimental: leave each query's last results page once it is read |
-| `-v`, `--verbose` | | Print every step as a JSON line instead of the progress line; the run ends with `summary: {...}` |
+| `-v`, `--verbose` | | Print every step as a JSON line on stderr instead of the progress line, after one plain `proxy: ...` line; the run ends with `summary: {...}` |
 
 </details>
 

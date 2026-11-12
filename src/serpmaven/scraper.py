@@ -246,6 +246,10 @@ class Settings:
     #: Ask Google's /goto redirect for each result's destination, from a proxy
     #: session of its own; pages no longer carry the URLs themselves.
     resolve_links: bool = True
+    #: Ask the links of the first that many organic results on each page only
+    #: (0: none, None: all). Fewer links answer sooner and cost less traffic;
+    #: a call to `search` or `start_search` can ask its own number.
+    links: int | None = None
     #: Identities to warm in the background once the current one is served,
     #: so the next exit is ready when this one is retired. Each costs a
     #: warm-up's traffic whether it is used or not.
@@ -322,6 +326,8 @@ class Settings:
             raise ValueError("clone_max_age must be positive")
         if self.restart_every < 0:
             raise ValueError("restart_every must be 0 or more")
+        if self.links is not None and self.links < 0:
+            raise ValueError("links must be 0 or more")
         if self.renew_donors_every < 0:
             raise ValueError("renew_donors_every must be 0 or more")
         if self.clones and (self.donors or self.renew_donors_every):
@@ -1104,6 +1110,8 @@ class Scraper:
         the next query while a caller waits for them (`PendingLinks.wait`)."""
         if links is not None and links < 0:
             raise ValueError("links must be 0 or more")
+        if links is None:
+            links = self.settings.links
         self.settle()
         # Jobs a caller of an earlier start_search waited for, or did not.
         self._link_jobs = {k: job for k, job in self._link_jobs.items() if not job.done()}
@@ -1464,7 +1472,8 @@ class Scraper:
         if saved:
             record["search_metadata"]["raw_html_file"] = saved
         resolver = self._links()
-        if resolver is not None and self._link_limit != 0:
+        limit = self._link_limit if self._link_limit is not None else self.settings.links
+        if resolver is not None and limit != 0:
             if self._link_pool is None:
                 self._link_pool = ThreadPoolExecutor(LINK_WORKERS, thread_name_prefix="gbs-links")
             make = getattr(identity.session, "link_client", None)
@@ -1473,7 +1482,7 @@ class Scraper:
                 self._event, "link_lookup_failed", identity, query=query, page=page
             )
             self._link_jobs[id(record)] = self._link_pool.submit(
-                _fill_links, resolver, record, fetched.html, client, self._link_limit, failed
+                _fill_links, resolver, record, fetched.html, client, limit, failed
             )
         return record
 

@@ -1887,8 +1887,28 @@ def test_links_pending_counts_only_the_results_whose_links_were_asked():
         s.close()
 
 
+def test_the_link_limit_in_settings_applies_to_runs_and_calls_that_do_not_ask_their_own():
+    settings = Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0), links=1)
+    s = _gated([[SERVED, SERVED, SERVED] for _ in range(3)], settings)
+    _GatedResolver.gate.set()
+    try:
+        list(s.run(["a"]))  # the command line's path
+        s.search("b")
+        s.search("c", links=2)  # a call's own number wins
+    finally:
+        s.close()
+    assert _GatedResolver.asked == [[1], [1], [1, 2]]
+
+
 def _held_first(record, n):
     return _held({"organic_results": record["organic_results"][:n]})
+
+
+def test_settings_refuse_a_negative_link_limit():
+    # A negative number would slice from the end: all results but the last.
+    with pytest.raises(ValueError, match="links"):
+        Settings(links=-1)
+    assert Settings(links=0).links == 0
 
 
 def test_a_negative_links_is_refused_before_a_query():

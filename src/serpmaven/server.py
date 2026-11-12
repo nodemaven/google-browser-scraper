@@ -210,15 +210,20 @@ class Worker:
 
 
 def search_job(
-    query: str, pages: int, hl: str | None = None, gl: str | None = None
+    query: str,
+    pages: int,
+    hl: str | None = None,
+    gl: str | None = None,
+    links: int | None = None,
 ) -> Callable[[Scraper], list[dict[str, Any]]]:
     """A job that runs one query for `pages` pages and leaves the identity open.
-    `hl` and `gl` override the scraper's for this query.
+    `hl` and `gl` override the scraper's for this query; `links` is how many
+    organic results per page get their link resolved (None: all).
 
     The upkeep the query leaves (a template copy, a restart) is not done here:
     queue `settle_job` once the answer is out, so the caller does not wait for it.
     """
-    return _query_job("search", query, pages, hl, gl)
+    return _query_job("search", query, pages, hl, gl, links)
 
 
 def start_job(
