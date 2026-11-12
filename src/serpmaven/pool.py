@@ -145,7 +145,9 @@ class Pool:
         while not todo.empty():
             self.not_run.append(todo.get_nowait())
         if stopped:
-            raise stopped[0]
+            # A crash is reported over a refusal: waiting it out would not help.
+            crashes = [exc for exc in stopped if isinstance(exc, WorkerFailed)]
+            raise (crashes or stopped)[0]
 
     def _work(self, index, scraper, todo, out, stopped) -> None:
         taken: list[str] = []

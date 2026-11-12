@@ -477,7 +477,7 @@ The defaults come from measurements in
 | `--gap LOW,HIGH` | 2,5 | Seconds between queries on one proxy IP |
 | `--pages N` | 1 | Result pages per query |
 | `--format` | from `-o`, else `jsonl` | `jsonl`, `json` or `csv`; `-o results.csv` picks `csv` by itself |
-| `--patient MINUTES` | `0` (stop) | When Google refuses proxy IPs until the run stops, wait and go on with the queries left, up to 3 times |
+| `--patient MINUTES` | `0` (stop) | When Google refuses proxy IPs until the run stops, wait and go on with the queries left, up to 3 times; a query cut short is asked again from its first page, so its earlier pages appear twice in the output |
 | `--price-per-gb` | | Your proxy price, to print the cost per 1000 pages |
 | `--no-resolve-links` | | Keep result links as Google `/goto` redirects |
 | `--links N` | all; `mcp` 5 | Resolve the links of the first N organic results on each page only; the rest keep their `/goto` redirect. Fewer answers sooner |

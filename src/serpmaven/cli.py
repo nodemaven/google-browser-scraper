@@ -93,7 +93,8 @@ def _parser(prog: str = "serpmaven") -> argparse.ArgumentParser:
         default=0,
         metavar="MINUTES",
         help="when Google refuses proxy IPs until the run stops, wait this long and go on "
-        f"with the queries left, up to {PATIENT_WAITS} times (default: stop)",
+        f"with the queries left, up to {PATIENT_WAITS} times (default: stop); a query cut "
+        "short is asked again from its first page, so its earlier pages appear twice",
     )
     search.add_argument(
         "--price-per-gb",

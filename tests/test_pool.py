@@ -269,3 +269,20 @@ def test_merged_stats_carry_the_hybrid_counters():
     a.pages_http, b.pages_http, b.exits_poisoned = 3, 4, 1
     merged = merge_stats([a, b])
     assert merged.pages_http == 7 and merged.exits_poisoned == 1
+
+
+def test_a_worker_crash_is_raised_over_a_refusal_recorded_before_it(monkeypatch):
+    from serpmaven import pool as pool_module
+    from serpmaven.pool import WorkerFailed
+
+    def work(self, index, scraper, todo, out, stopped):
+        if index == 1:
+            time.sleep(0.05)  # the refusal is recorded first
+        stopped.append(WorkerFailed("worker 1 failed: no display") if index else ExitsRefused("6"))
+        self._stop.set()
+        out.put(pool_module._DONE)  # as the real worker does on its way out
+
+    monkeypatch.setattr(Pool, "_work", work)
+    p = pool([[[SERVED]], [[SERVED]]], Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)))
+    with pytest.raises(WorkerFailed):
+        list(p.run(["q0", "q1"]))
