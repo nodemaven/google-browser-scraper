@@ -327,6 +327,53 @@ def test_a_record_from_http_is_resolved_on_its_exit_and_the_client_closed():
     assert record["organic_results"][0]["link"] == "https://aaa.example/" and Client.closed
 
 
+def test_a_step_that_raises_is_reported_and_the_next_one_still_runs():
+    class Client:
+        closed = False
+        get = None
+
+        def close(self):
+            Client.closed = True
+
+    def broken(results, page, get):
+        raise RuntimeError("no route through http://user:secret@gate.example.com:7000")
+
+    resolver = LinkResolver(None, relay_factory=None)
+    resolver.fill_from_pings = broken
+    filled = []
+    resolver.fill = lambda results: filled.append(len(results))
+    record = {
+        "organic_results": [{"link": None, "redirect_link": "https://www.google.com/goto?url=AAA"}],
+        "search_metadata": {},
+    }
+    reports = []
+    _fill_links(resolver, record, PAGE, Client(), failed=lambda **f: reports.append(f))
+    assert reports == [
+        {
+            "step": "pings",
+            "error": "RuntimeError: no route through http://***@gate.example.com:7000",
+        }
+    ]
+    assert filled == [1] and Client.closed
+
+
+def test_a_resolver_that_raises_is_reported_and_the_record_keeps_its_timing():
+    def broken(results):
+        raise ValueError("bad redirect")
+
+    resolver = LinkResolver(None, relay_factory=None)
+    resolver.fill = broken
+    record = {
+        "organic_results": [{"link": None, "redirect_link": "https://www.google.com/goto?url=AAA"}],
+        "search_metadata": {},
+    }
+    reports = []
+    _fill_links(resolver, record, failed=lambda **f: reports.append(f))
+    assert reports == [{"step": "goto", "error": "ValueError: bad redirect"}]
+    assert "links" in record["search_metadata"]["timings"]
+    _fill_links(resolver, record)  # nobody listening: still no exception
+
+
 def test_each_ping_gets_what_is_left_of_the_page_budget():
     timeouts = []
 

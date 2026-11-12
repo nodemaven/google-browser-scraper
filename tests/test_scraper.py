@@ -415,6 +415,48 @@ def test_save_html_keeps_every_page_and_names_it_in_the_record(tmp_path):
     assert records[0]["search_metadata"]["raw_html_file"].endswith("0002_ok_best-shoes_p1.html.gz")
 
 
+def test_a_failed_link_lookup_is_an_event_and_the_page_is_still_served():
+    class BrokenResolver:
+        resolved = failed = bytes = 0
+
+        def __init__(self, upstream, relay_factory=None):
+            pass
+
+        def fill(self, results):
+            raise RuntimeError("resolver is gone")
+
+        def close(self):
+            pass
+
+        def hosts(self):
+            return {}
+
+    FakeSession.opened, FakeRelay.by_address = [], {}
+    events = []
+    s = Scraper(
+        ProxyTemplate("http://u-{session}:p@gate.example.com:7000"),
+        Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0)),
+        session_factory=lambda proxy, **o: FakeSession(proxy, script=[SERVED], **o),
+        relay_factory=FakeRelay,
+        resolver_factory=BrokenResolver,
+        sleep=lambda x: None,
+        on_event=events.append,
+    )
+    records = list(s.run(["a"]))
+    assert records[0]["search_metadata"]["status"] == "Success"
+    failed = [e for e in events if e["event"] == "link_lookup_failed"]
+    assert failed == [
+        {
+            "event": "link_lookup_failed",
+            "session": records[0]["exit"]["session"],
+            "query": "a",
+            "page": 1,
+            "step": "goto",
+            "error": "RuntimeError: resolver is gone",
+        }
+    ]
+
+
 def test_unresolved_links_are_filled_by_the_resolver_on_a_session_of_its_own():
     made = []
 

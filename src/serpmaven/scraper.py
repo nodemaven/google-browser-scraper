@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import functools
 import gzip
 import json
 import os
@@ -765,23 +766,38 @@ class Stats:
 
 
 def _fill_links(
-    resolver, record: dict[str, Any], page: str = "", client=None, limit: int | None = None
+    resolver,
+    record: dict[str, Any],
+    page: str = "",
+    client=None,
+    limit: int | None = None,
+    failed: Callable[..., None] | None = None,
 ) -> None:
     """A record's links: on the exit its page came from, through each result's
     ping URL, then from the resolver's own exit for whatever is left. With
-    `limit`, only the first that many organic results are asked."""
+    `limit`, only the first that many organic results are asked. A step that
+    raises is reported to `failed(step=, error=)`; the links it did not reach
+    stay unresolved."""
     mark = time.monotonic()
     results = record.get("organic_results") or []
     if limit is not None:
         results = results[:limit]
+
+    def report(step: str, exc: Exception) -> None:
+        if failed is not None:
+            failed(step=step, error=describe_error(exc))
+
     if client is not None:
         try:
             resolver.fill_from_pings(results, page, client.get)
-        except Exception:
-            pass  # whatever is left goes to the /goto resolver below
+        except Exception as exc:  # whatever is left goes to the /goto resolver below
+            report("pings", exc)
         finally:
             client.close()
-    resolver.fill(results)
+    try:
+        resolver.fill(results)
+    except Exception as exc:
+        report("goto", exc)
     with getattr(resolver, "lock", None) or contextlib.nullcontext():
         timings = record["search_metadata"].setdefault("timings", {})
         timings["links"] = round(time.monotonic() - mark, 2)
@@ -1401,8 +1417,11 @@ class Scraper:
                 self._link_pool = ThreadPoolExecutor(LINK_WORKERS, thread_name_prefix="gbs-links")
             make = getattr(identity.session, "link_client", None)
             client = make() if make else None
+            failed = functools.partial(
+                self._event, "link_lookup_failed", identity, query=query, page=page
+            )
             self._link_jobs[id(record)] = self._link_pool.submit(
-                _fill_links, resolver, record, fetched.html, client, self._link_limit
+                _fill_links, resolver, record, fetched.html, client, self._link_limit, failed
             )
         return record
 
