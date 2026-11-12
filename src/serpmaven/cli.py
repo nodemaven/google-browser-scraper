@@ -18,7 +18,7 @@ from .classify import classify
 from .mcp import DEFAULT_LINKS as MCP_LINKS
 from .output import WRITERS, answered, open_writer, use_utf8
 from .parse import parse_serp
-from .pool import Pool
+from .pool import Pool, WorkerFailed
 from .progress import Progress
 from .proxy import NodeMavenDemoSource, NodeMavenSource, ProxyTemplate
 from .scraper import (
@@ -272,7 +272,8 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
         choices=DIRECT_MODES,
         default="all",
         help="which queries open the results page directly instead of going through "
-        "the search box: all (default), all but the first on each proxy IP, or none",
+        "the search box: all (default), all but the first on each proxy IP, or none; "
+        "a language other than en, a country, a location or a filter always opens it directly",
     )
     p.add_argument(
         "--stop-after-read",
@@ -585,7 +586,9 @@ def _search(args) -> int:
                     )
                 else:
                     scraper, _ = _build(args, proxy, pages=args.pages, progress=progress)
-                done, stopped = _run(scraper, queries, writer, progress, failed, args.price_per_gb)
+                done, stopped = _run(
+                    scraper, queries, writer, progress, failed, args.price_per_gb, args.pages
+                )
                 code = 3 if stopped else 0
                 queries = [q for q in queries if q.strip() and q.strip() not in done]
                 again = stopped == "breaker" and args.patient
@@ -604,20 +607,37 @@ def _search(args) -> int:
     return code or (4 if failed else 0)
 
 
+def _last_page(record: dict[str, Any], pages: int) -> bool:
+    """Whether a served page ends its query: page `pages`, or Google has no next one."""
+    page = record["search_parameters"].get("page", 1)
+    return page >= pages or not (record.get("pagination") or {}).get("next")
+
+
+def _stop_reason(exc: ExitsRefused) -> str:
+    if isinstance(exc, ProxyRefused):
+        return "proxy"
+    if isinstance(exc, WorkerFailed):
+        return "worker"
+    return "breaker"
+
+
 def _run(
-    scraper, queries, writer, progress, failed: set[str], price
+    scraper, queries, writer, progress, failed: set[str], price, pages: int = 1
 ) -> tuple[set[str], str | None]:
-    """One scraper over the queries: the queries it answered with every page, and
-    what stopped it - "breaker", "proxy" (the account was refused, which waiting
-    does not change) or None. `failed` keeps the queries whose last answer failed."""
+    """One scraper over the queries: the queries it answered with every page (the
+    last one is page `pages` or has no next page on Google), and what stopped it -
+    "breaker", "proxy" (the account was refused) or "worker" (a pool worker crashed),
+    the last two being what waiting does not change - or None. `failed` keeps the
+    queries whose last answer failed."""
     done: set[str] = set()
     stopped = None
     try:
         for record in scraper.run(queries):
             q = record["search_parameters"]["q"].strip()
             if record["search_metadata"]["status"] == "Success":
-                done.add(q)
                 failed.discard(q)
+                if _last_page(record, pages):
+                    done.add(q)
             else:
                 failed.add(q)
                 done.discard(q)  # a later page failed: the query is not complete
@@ -629,7 +649,7 @@ def _run(
         # arrives wrapped here; its fix is one line too.
         if not hints.report(exc):
             print(f"stopped: {exc}", file=sys.stderr)
-        stopped = "proxy" if isinstance(exc, ProxyRefused) else "breaker"
+        stopped = _stop_reason(exc)
     finally:
         not_run = getattr(scraper, "not_run", [])
         if not_run:

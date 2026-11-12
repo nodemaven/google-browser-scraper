@@ -269,3 +269,53 @@ def test_resume_on_the_command_line_compares_the_filters(tmp_path, monkeypatch):
     argv = ["search", "pizza", "--no-proxy", "-o", str(out), "--resume", "--tbs", "qdr:w"]
     assert cli.main(argv) == 0
     assert recorder.asked == ["pizza"]
+
+
+def test_resume_skips_records_with_a_page_that_is_not_a_page_number(tmp_path):
+    out = tmp_path / "out.jsonl"
+    lines = [json.loads(_line(q)) for q in ("a", "b", "c", "d")]
+    for record, page in zip(lines, ("1", True, 0, 1), strict=True):
+        record["search_parameters"]["page"] = page
+    out.write_text("".join(json.dumps(r) + "\n" for r in lines), encoding="utf-8")
+    assert answered(out) == {"d"}
+
+
+def test_patient_asks_again_a_query_stopped_before_its_last_page(tmp_path, monkeypatch):
+    asked = []
+
+    class StopsAfterPageOne(_Stopping):
+        def run(self, queries):
+            from serpmaven.scraper import ExitsRefused
+
+            for q in queries:
+                asked.append(q)
+                yield _paged_record(q, 1, True)
+                if len(asked) == 1:
+                    raise ExitsRefused("6 exits in a row refused or unreachable")
+                yield _paged_record(q, 2, False)
+
+    monkeypatch.setattr(cli, "_build", lambda args, proxy, **kw: (StopsAfterPageOne(9, []), ""))
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    argv = ["search", "a", "--no-proxy", "--pages", "2", "-o", str(tmp_path / "o.jsonl")]
+    assert cli.main([*argv, "--patient", "1"]) == 0
+    assert asked == ["a", "a"]
+
+
+def _paged_record(query, page, more):
+    return json.loads(_paged(query, page, more))
+
+
+def test_patient_does_not_wait_out_a_crashed_worker(tmp_path, monkeypatch):
+    from serpmaven.pool import WorkerFailed
+
+    class Crashed(_Stopping):
+        def run(self, queries):
+            raise WorkerFailed("worker 1 failed: no display")
+            yield  # pragma: no cover
+
+    slept = []
+    monkeypatch.setattr(cli, "_build", lambda args, proxy, **kw: (Crashed(0, []), ""))
+    monkeypatch.setattr(cli.time, "sleep", slept.append)
+    argv = ["search", "a", "--no-proxy", "-o", str(tmp_path / "o.jsonl"), "--patient", "1"]
+    assert cli.main(argv) == 3
+    assert slept == []

@@ -187,6 +187,8 @@ def answered(path: Path, pages: int = 1, params: dict[str, Any] | None = None) -
                         continue
                     query = record["search_parameters"]["q"].strip()
                     page = record["search_parameters"].get("page", 1)
+                    if type(page) is not int or page < 1:
+                        continue  # not a page number this program writes
                     ok = record["search_metadata"]["status"] == "Success"
                     more = bool((record.get("pagination") or {}).get("next"))
                 except (ValueError, KeyError, TypeError, AttributeError):
