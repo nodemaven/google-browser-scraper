@@ -154,14 +154,17 @@ def open_writer(fmt: str, stream: IO[str]):
         raise ValueError(f"format must be one of {', '.join(WRITERS)}, got {fmt!r}") from None
 
 
-def answered(path: Path) -> set[str]:
+def answered(path: Path, pages: int = 1) -> set[str]:
     """The queries a JSON Lines output file already holds every page for, for a
-    run that resumes into it. Each query counts by its latest attempt (a record
-    for page 1 starts one): one whose latest attempt has a failed page is asked
-    again, one that failed and was then answered is not. The file is read a
-    line at a time, split on newlines only. A last line cut off by a killed run
-    is removed from the file, so the records appended after it stay one per line."""
-    complete: dict[str, bool] = {}
+    run that resumes into it with `pages` pages per query. Each query counts by
+    its latest attempt (a record for page 1 starts one): it is complete when every
+    page so far succeeded and the last one is page `pages` or has no next page on
+    Google. So a query that failed and was then answered is not asked again; one
+    with a failed page, or cut short by a killed run, is. The file is read a line
+    at a time, split on newlines only. A last line cut off by a killed run is
+    removed from the file, so the records appended after it stay one per line."""
+    # query -> (every page so far succeeded, last page, Google has another page)
+    state: dict[str, tuple[bool, int, bool]] = {}
     end = 0
     try:
         with path.open("rb") as f:
@@ -174,13 +177,15 @@ def answered(path: Path) -> set[str]:
                     query = record["search_parameters"]["q"].strip()
                     page = record["search_parameters"].get("page", 1)
                     ok = record["search_metadata"]["status"] == "Success"
+                    more = bool((record.get("pagination") or {}).get("next"))
                 except (ValueError, KeyError, TypeError, AttributeError):
                     continue
-                complete[query] = ok if page == 1 else complete.get(query, False) and ok
+                before = state.get(query, (False, 0, False))[0] if page != 1 else True
+                state[query] = (before and ok, page, more)
             tail = f.seek(0, 2) != end
     except FileNotFoundError:
         return set()
     if tail:
         with path.open("r+b") as f:
             f.truncate(end)
-    return {q for q, ok in complete.items() if ok}
+    return {q for q, (ok, last, more) in state.items() if ok and (last >= pages or not more)}

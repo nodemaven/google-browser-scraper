@@ -521,7 +521,7 @@ def _read_queries(args) -> list[str]:
 def _resume(args, fmt: str, queries: list[str]) -> list[str]:
     if args.output is None or fmt != "jsonl":
         raise ValueError("--resume needs --output FILE in the jsonl format")
-    done = answered(args.output)
+    done = answered(args.output, args.pages)
     total = sum(1 for q in queries if q.strip())
     left = [q for q in queries if q.strip() and q.strip() not in done]
     print(

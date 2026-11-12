@@ -224,3 +224,22 @@ def test_settings_refuse_a_location_google_cannot_take():
 
     with pytest.raises(ValueError, match="location"):
         Settings(location="x" * 64)
+
+
+def _paged(query, page, more):
+    record = json.loads(_line(query, page=page))
+    record["pagination"] = {"current": page, **({"next": "https://g.example/n"} if more else {})}
+    return json.dumps(record) + "\n"
+
+
+def test_with_several_pages_a_query_cut_short_is_asked_again(tmp_path):
+    out = tmp_path / "out.jsonl"
+    out.write_text(
+        _paged("cut", 1, True)  # killed after page 1 of 3
+        + _paged("short", 1, True)
+        + _paged("short", 2, False)  # Google had no page 3
+        + "".join(_paged("full", p, True) for p in (1, 2, 3)),
+        encoding="utf-8",
+    )
+    assert answered(out, pages=3) == {"short", "full"}
+    assert answered(out, pages=1) == {"cut", "short", "full"}
