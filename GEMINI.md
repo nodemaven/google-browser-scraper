@@ -5,8 +5,11 @@ browser through the user's residential proxy, as structured data.
 
 ## Before the first search
 
-The tool needs two things set up once, in a terminal (not through the tool):
+The tool needs a few things set up once, in a terminal (not through the tool):
 
+0. [uv](https://docs.astral.sh/uv/), which runs the server: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+   on macOS and Linux, `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+   on Windows, then a new terminal.
 1. A proxy login: `uvx serpmaven login`. It asks for the NodeMaven Proxy Username and
    Proxy Password, or `uvx serpmaven login --proxy "http://USER-session-{session}:PASS@host:port"`
    for any other provider with sticky sessions. No account yet: NodeMaven gives 2 GB free

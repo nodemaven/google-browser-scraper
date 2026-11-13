@@ -21,6 +21,6 @@ def test_the_extension_names_this_version_and_its_context_file():
 def test_the_extension_starts_a_command_the_cli_accepts():
     extension = json.loads((ROOT / "gemini-extension.json").read_text(encoding="utf-8"))
     (server,) = extension["mcpServers"].values()
-    assert server["command"] == "uvx" and server["args"][0] == "serpmaven"
+    assert server["command"] == "uvx" and server["args"][0] == f"serpmaven=={extension['version']}"
     args = cli._parser().parse_args(server["args"][1:])
     assert args.command == "mcp"
