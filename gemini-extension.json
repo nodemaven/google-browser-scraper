@@ -1,0 +1,12 @@
+{
+  "name": "serpmaven",
+  "version": "0.2.3",
+  "description": "Live Google search from a real Chrome browser and your residential proxy",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "serpmaven": {
+      "command": "uvx",
+      "args": ["serpmaven", "mcp", "--prewarm"]
+    }
+  }
+}
