@@ -1,0 +1,52 @@
+name: pypi-check
+
+# Once a week, and by hand: what `pip install serpmaven` gives a new user today must still
+# run the README's Install and Quickstart commands. Installs the published package in a
+# clean job and runs tests/test_quickstart_contract.py against it, not against this tree.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # bash stops a step at its first failing command, on Windows too (Git Bash);
+    # PowerShell would report only the last command's exit code.
+    shell: bash
+
+jobs:
+  quickstart:
+    name: quickstart (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The job runs code installed from PyPI; it gets no token to read.
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install from PyPI
+        run: python -m pip install --no-cache-dir serpmaven pytest
+      - name: The commands start
+        run: |
+          serpmaven --version
+          serpmaven --help
+          serpmaven login --help
+          serpmaven search --help
+          serpmaven install --help
+          serpmaven doctor --help
+      # `-o pythonpath=` drops the project's `src` from the path, so the tests import the
+      # package pip installed; the check after it fails if they did not.
+      - name: Quickstart contract against the published package
+        run: |
+          python -m pytest -q -p no:cacheprovider -o pythonpath= tests/test_quickstart_contract.py
+          python -c "import serpmaven; assert 'site-packages' in serpmaven.__file__, serpmaven.__file__"
