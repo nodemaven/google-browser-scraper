@@ -21,4 +21,5 @@ def test_server_json_names_this_package_at_its_version():
 def test_the_readme_carries_the_name_the_registry_checks_on_pypi():
     server = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert re.search(rf"mcp-name: {re.escape(server['name'])}\b", readme)
+    marker = f"<!-- mcp-name: {server['name']} -->"
+    assert re.search(rf"(?m)^{re.escape(marker)}$", readme)

@@ -24,7 +24,12 @@ jobs:
       PUBLISHER_VERSION: v1.8.1
       PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
     steps:
+      # The commit the successful publish run built, not main as it is now: server.json
+      # has to name the version that reached PyPI.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
       - name: Install mcp-publisher
         run: |
           curl -fsSL -o publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"

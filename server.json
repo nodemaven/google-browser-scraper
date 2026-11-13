@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.nodemaven/serpmaven",
   "title": "SERP Maven",
-  "description": "Live Google search for AI agents from a real Chrome browser and your residential proxy",
+  "description": "Live Google search for AI agents from a real Chrome browser; run `serpmaven install` once first",
   "repository": {
     "url": "https://github.com/nodemaven/serpmaven",
     "source": "github"
