@@ -1,2 +1,4 @@
 recursive-include tests *.py
 include scripts/*.py
+# Read by tests/test_server_json.py, so the suite runs from the sdist too.
+include server.json
