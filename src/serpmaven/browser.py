@@ -14,13 +14,15 @@
 
 from __future__ import annotations
 
+import base64
 import math
 import random
 import shutil
+import string
 import tempfile
 import time
 from dataclasses import dataclass, field, replace
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 HOME_URL = "https://www.google.com/?hl=en"
 
@@ -104,17 +106,71 @@ def search_page() -> str:
     return urlunsplit((home.scheme, home.netloc, "/search", "", ""))
 
 
-def results_url(query: str, hl: str = "en", gl: str | None = None, start: int = 0) -> str:
+def results_url(
+    query: str,
+    hl: str = "en",
+    gl: str | None = None,
+    start: int = 0,
+    extra: dict[str, str] | None = None,
+) -> str:
     """Google's results page for `query`: `hl` is the interface language, `gl`
     the country the results are for (Google picks one from the exit if unset),
-    `start` the first result's offset (10 for the second page). On the host of
+    `start` the first result's offset (10 for the second page), `extra` more
+    parameters as they are (`uule`, `tbs`; see `url_params`). On the host of
     `HOME_URL`, so a test can point both at a local server."""
     params = {"q": query, "hl": hl}
     if gl:
         params["gl"] = gl
     if start:
         params["start"] = str(start)
-    return search_page() + "?" + urlencode(params)
+    url = search_page() + "?" + urlencode(params)
+    for name, value in (extra or {}).items():
+        # A uule keeps its "+" and base64 as browsers send it.
+        url += f"&{name}={quote(value, safe='+/=:,')}"
+    return url
+
+
+_UULE_KEY = string.ascii_uppercase + string.ascii_lowercase + string.digits + "-_"
+
+
+def uule(location: str) -> str:
+    """Google's `uule` for a place by its canonical name, e.g.
+    "Austin,Texas,United States": results as searched from there."""
+    raw = location.strip().encode("utf-8")
+    if not 0 < len(raw) < len(_UULE_KEY):
+        raise ValueError(f"location must be 1 to {len(_UULE_KEY) - 1} bytes long")
+    return "w+CAIQICI" + _UULE_KEY[len(raw)] + base64.b64encode(raw).decode("ascii").rstrip("=")
+
+
+def url_params(
+    location: str | None = None,
+    tbs: str | None = None,
+    *,
+    personalized: bool = True,
+    autocorrect: bool = True,
+    cr: str | None = None,
+    lr: str | None = None,
+) -> dict[str, str]:
+    """The results-page parameters past `hl` and `gl`: `location` (a canonical
+    place name, sent as `uule`), `tbs` (Google's time and other filters, e.g.
+    "qdr:w" for the past week), `pws=0` when not `personalized`, `nfpr=1` when
+    a misspelt query is to be searched as typed, and `cr` / `lr` to keep results
+    to documents from some countries ("countryUS") or in some languages
+    ("lang_en")."""
+    out = {}
+    if location:
+        out["uule"] = uule(location)
+    if tbs:
+        out["tbs"] = tbs
+    if not personalized:
+        out["pws"] = "0"
+    if not autocorrect:
+        out["nfpr"] = "1"
+    if cr:
+        out["cr"] = cr
+    if lr:
+        out["lr"] = lr
+    return out
 
 
 #: How a query gets into the search box: key by key, all at once, or one word
@@ -177,12 +233,14 @@ class BrowserSession:
         hl: str = "en",
         gl: str | None = None,
         cookies: list[dict] | tuple[dict, ...] = (),
+        params: dict[str, str] | None = None,
     ) -> None:
         if input_mode not in INPUT_MODES:
             raise ValueError(f"input mode must be one of {', '.join(INPUT_MODES)}")
         self._input = input_mode
         self._hl = hl
         self._gl = gl
+        self._params = dict(params or {})
         if any(a.startswith(("--disable-features", "--enable-features")) for a in browser_args):
             raise ValueError(
                 "--disable-features/--enable-features would replace the browser's "
@@ -214,6 +272,10 @@ class BrowserSession:
     @property
     def gl(self) -> str | None:
         return self._gl
+
+    @property
+    def params(self) -> dict[str, str]:
+        return self._params
 
     def launch_args(self) -> list[str] | None:
         args = list(self._args)
@@ -308,8 +370,9 @@ class BrowserSession:
         `direct`, open the results page for it instead. `hl` and `gl` override
         the session's for this query, and open the results page directly."""
         # The search box path opens the English front page and has no place
-        # for a country, so any other language or country goes through the URL.
-        if direct or hl or gl or self._gl or self._hl != "en":
+        # for a country, so any other language or country goes through the URL,
+        # as do a location and filters.
+        if direct or hl or gl or self._gl or self._hl != "en" or self._params:
             return self._search_direct(query, hl=hl, gl=gl)
         page = self.page
         timings: dict[str, float] = {}
@@ -391,7 +454,7 @@ class BrowserSession:
     def _search_direct(
         self, query: str, start: int = 0, hl: str | None = None, gl: str | None = None
     ) -> Fetched:
-        url = results_url(query, hl or self._hl, gl or self._gl, start)
+        url = results_url(query, hl or self._hl, gl or self._gl, start, self._params)
         mark = time.monotonic()
         response = self._goto_results(url)
         # A fresh exit can be shown the consent wall instead of results; clear

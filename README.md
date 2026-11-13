@@ -452,11 +452,17 @@ The defaults come from measurements in
 |---|---|---|
 | `-f`, `--file FILE` | | Queries from FILE, one per line |
 | `-o`, `--output FILE` | stdout | Where the results are written |
+| `--resume` | | Skip the queries the `--output` file already has results for and add to it (jsonl); failed ones are asked again |
 | `--workers N` | 1 | Search on N proxy IPs at once, one browser each, from one list of queries |
 | `--max-per-exit N` | 300 | Queries before a served proxy IP is retired |
 | `--restart-every N` | 50 | Results pages the browser rendered before it restarts on the same profile and proxy IP; `0` never |
 | `--no-hybrid` | | Fetch every results page in the browser instead of over HTTP between Google's checks |
 | `--hl`, `--gl` | `en`, unset | Language and country of the results |
+| `--location PLACE` | unset | Search as from this place, by its canonical name: `"Austin,Texas,United States"` |
+| `--tbs FILTER` | unset | Google's `tbs` filter as it is, e.g. `qdr:w` for the past week |
+| `--no-personalization` | | Results without personalization (`pws=0`) |
+| `--no-autocorrect` | | Search a misspelt query as typed (`nfpr=1`) |
+| `--cr COUNTRIES`, `--lr LANGUAGES` | unset | Only documents from these countries (`countryUS`) or in these languages (`lang_en`) |
 | `--clone N` | 10 | With `--renew-cookies 0`: new proxy IPs started from copied cookies; `0` turns copying off |
 | `--clone-max-age` | 180 | Minutes copied cookies stay in use |
 | `--clone-refusals N` | 1 | Copies refused in a row on their first query that end the copying |
@@ -470,7 +476,8 @@ The defaults come from measurements in
 | `--input` | `type` | How a query goes into the search box: `type`, `insert`, `words` |
 | `--gap LOW,HIGH` | 2,5 | Seconds between queries on one proxy IP |
 | `--pages N` | 1 | Result pages per query |
-| `--format` | `jsonl` | `jsonl` or `csv` |
+| `--format` | from `-o`, else `jsonl` | `jsonl`, `json` or `csv`; `-o results.csv` picks `csv` by itself |
+| `--patient MINUTES` | `0` (stop) | When Google refuses proxy IPs until the run stops, wait and go on with the queries left, up to 3 times; a query cut short is asked again from its first page, so its earlier pages appear twice in the output |
 | `--price-per-gb` | | Your proxy price, to print the cost per 1000 pages |
 | `--no-resolve-links` | | Keep result links as Google `/goto` redirects |
 | `--links N` | all; `mcp` 5 | Resolve the links of the first N organic results on each page only; the rest keep their `/goto` redirect. Fewer answers sooner |

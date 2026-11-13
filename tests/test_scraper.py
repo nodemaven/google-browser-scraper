@@ -6,7 +6,7 @@ import tempfile
 import pages
 import pytest
 
-from serpmaven.browser import Fetched, results_url
+from serpmaven.browser import Fetched, results_url, url_params, uule
 from serpmaven.proxy import ProxyTemplate
 from serpmaven.scraper import (
     PREWARM_QUERIES,
@@ -1246,6 +1246,54 @@ def test_results_url_carries_language_and_country():
     assert results_url("pizza", hl="de", gl="at") == (
         "https://www.google.com/search?q=pizza&hl=de&gl=at"
     )
+
+
+def test_location_and_tbs_reach_the_browser_and_the_record():
+    settings = Settings(
+        location="Austin,Texas,United States",
+        tbs="qdr:w",
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+    )
+    records = list(scraper([[SERVED]], settings).run(["a"]))
+    assert FakeSession.opened[0].options["params"] == {
+        "uule": "w+CAIQICIaQXVzdGluLFRleGFzLFVuaXRlZCBTdGF0ZXM",
+        "tbs": "qdr:w",
+    }
+    parameters = records[0]["search_parameters"]
+    assert parameters["location"] == "Austin,Texas,United States"
+    assert parameters["tbs"] == "qdr:w"
+    plain = list(scraper([[SERVED]], Settings(gap_seconds=(0, 0), dwell_seconds=(0, 0))).run(["a"]))
+    assert FakeSession.opened[0].options["params"] == {}
+    assert "location" not in plain[0]["search_parameters"]
+
+
+def test_results_url_carries_a_location_and_filters_as_browsers_send_them():
+    url = results_url("pizza", extra=url_params("Austin,Texas,United States", "qdr:w"))
+    assert url == (
+        "https://www.google.com/search?q=pizza&hl=en"
+        "&uule=w+CAIQICIaQXVzdGluLFRleGFzLFVuaXRlZCBTdGF0ZXM&tbs=qdr:w"
+    )
+    for bad in ("", "x" * 64):
+        with pytest.raises(ValueError, match="location"):
+            uule(bad)
+
+
+def test_unpersonalized_uncorrected_country_and_language_reach_the_url_and_the_record():
+    settings = Settings(
+        personalized=False,
+        autocorrect=False,
+        cr="countryUS",
+        lr="lang_en",
+        gap_seconds=(0, 0),
+        dwell_seconds=(0, 0),
+    )
+    records = list(scraper([[SERVED]], settings).run(["a"]))
+    expected = {"pws": "0", "nfpr": "1", "cr": "countryUS", "lr": "lang_en"}
+    assert FakeSession.opened[0].options["params"] == expected
+    assert {k: records[0]["search_parameters"][k] for k in expected} == expected
+    url = results_url("pizza", extra=url_params(personalized=False, autocorrect=False))
+    assert url.endswith("&hl=en&pws=0&nfpr=1")
 
 
 def test_an_exit_serving_pages_unrelated_to_their_queries_is_retired_as_poisoned():

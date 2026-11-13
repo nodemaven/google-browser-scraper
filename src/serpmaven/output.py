@@ -13,6 +13,7 @@ import io
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import IO, Any
 
 
@@ -59,6 +60,7 @@ def build_record(
     hl: str = "en",
     gl: str | None = None,
     timings: dict[str, float] | None = None,
+    params: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     ok = error is None and parsed is not None
     record: dict[str, Any] = {
@@ -81,6 +83,7 @@ def build_record(
     }
     if gl:
         record["search_parameters"]["gl"] = gl
+    record["search_parameters"].update(params or {})
     if timings:
         # Seconds per step of this page: home, type, load, ready, read, parse, links.
         record["search_metadata"]["timings"] = timings
@@ -149,3 +152,53 @@ def open_writer(fmt: str, stream: IO[str]):
         return WRITERS[fmt](stream)
     except KeyError:
         raise ValueError(f"format must be one of {', '.join(WRITERS)}, got {fmt!r}") from None
+
+
+#: The search_parameters that make two records answers to different searches.
+SAME_SEARCH = ("hl", "gl", "location", "tbs", "pws", "nfpr", "cr", "lr")
+
+
+def answered(path: Path, pages: int = 1, params: dict[str, Any] | None = None) -> set[str]:
+    """The queries a JSON Lines output file already holds every page for, for a
+    run that resumes into it with `pages` pages per query and the language,
+    country, location and filters in `params` (records made with others are
+    another search and do not count). Each query counts by
+    its latest attempt (a record for page 1 starts one): it is complete when every
+    page so far succeeded and the last one is page `pages` or has no next page on
+    Google. So a query that failed and was then answered is not asked again; one
+    with a failed page, or cut short by a killed run, is. The file is read a line
+    at a time, split on newlines only. A last line cut off by a killed run is
+    removed from the file, so the records appended after it stay one per line."""
+    # query -> (every page so far succeeded, last page, Google has another page)
+    state: dict[str, tuple[bool, int, bool]] = {}
+    end = 0
+    try:
+        with path.open("rb") as f:
+            for line in f:
+                if not line.endswith(b"\n"):
+                    break  # the cut-off tail; `end` stays at its start
+                end += len(line)
+                try:
+                    record = json.loads(line)
+                    asked = record["search_parameters"]
+                    if params is not None and any(
+                        asked.get(k) != params.get(k) for k in SAME_SEARCH
+                    ):
+                        continue
+                    query = record["search_parameters"]["q"].strip()
+                    page = record["search_parameters"].get("page", 1)
+                    if type(page) is not int or page < 1:
+                        continue  # not a page number this program writes
+                    ok = record["search_metadata"]["status"] == "Success"
+                    more = bool((record.get("pagination") or {}).get("next"))
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    continue
+                before = state.get(query, (False, 0, False))[0] if page != 1 else True
+                state[query] = (before and ok, page, more)
+            tail = f.seek(0, 2) != end
+    except FileNotFoundError:
+        return set()
+    if tail:
+        with path.open("r+b") as f:
+            f.truncate(end)
+    return {q for q, (ok, last, more) in state.items() if ok and (last >= pages or not more)}

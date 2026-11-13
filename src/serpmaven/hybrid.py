@@ -502,6 +502,7 @@ class HybridSession:
             self._locale.get("hl") or self.inner.hl,
             self._locale.get("gl") or self.inner.gl,
             (page - 1) * 10,
+            getattr(self.inner, "params", None),
         )
         if not self._cookie:
             self._cookie = self.inner.google_cookies()

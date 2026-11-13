@@ -33,6 +33,12 @@ from typing import Any
 from .hybrid import Headers
 from .scraper import Breaker, Donors, ExitsRefused, Scraper, Stats, Templates
 
+
+class WorkerFailed(ExitsRefused):
+    """A worker crashed (no browser, no display, a bug): not Google's refusal, so
+    waiting and trying again does not help."""
+
+
 MAX_WORKERS = 16
 _DONE = object()
 
@@ -139,7 +145,9 @@ class Pool:
         while not todo.empty():
             self.not_run.append(todo.get_nowait())
         if stopped:
-            raise stopped[0]
+            # A crash is reported over a refusal: waiting it out would not help.
+            crashes = [exc for exc in stopped if isinstance(exc, WorkerFailed)]
+            raise (crashes or stopped)[0]
 
     def _work(self, index, scraper, todo, out, stopped) -> None:
         taken: list[str] = []
@@ -167,7 +175,7 @@ class Pool:
             stopped.append(exc)
             self._stop.set()
         except Exception as exc:  # a worker's crash must not hang the pool
-            stopped.append(ExitsRefused(f"worker {index} failed: {exc}"))
+            stopped.append(WorkerFailed(f"worker {index} failed: {exc}"))
             self._stop.set()
         finally:
             # Taken but never answered: Scraper.run looks one query ahead.
