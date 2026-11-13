@@ -1,4 +1,5 @@
 recursive-include tests *.py
 include scripts/*.py
-# Read by tests/test_server_json.py, so the suite runs from the sdist too.
-include server.json
+# Read by tests/test_server_json.py and tests/test_gemini_extension.py, so the suite runs
+# from the sdist too.
+include server.json gemini-extension.json GEMINI.md
