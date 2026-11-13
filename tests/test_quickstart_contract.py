@@ -14,11 +14,13 @@ import re
 import shlex
 from pathlib import Path
 
+import pages
 import pytest
 
 import serpmaven
 from serpmaven import cli
 from serpmaven.output import build_record
+from serpmaven.parse import parse_serp
 
 README = Path(__file__).resolve().parent.parent / "README.md"
 
@@ -89,7 +91,8 @@ def test_the_python_example_imports_what_exists():
 
 
 def test_the_record_keeps_the_fields_users_read():
-    parsed = {"organic_results": [{f: "x" for f in ORGANIC_FIELDS}]}
+    # Through the parser, so a field it stops writing fails here too.
+    parsed = parse_serp(pages.results_page(goto=False))
     record = build_record(
         "q", page=1, verdict=None, url=None, elapsed=1.0, exit_info={}, parsed=parsed
     )
@@ -99,4 +102,5 @@ def test_the_record_keeps_the_fields_users_read():
         assert field in record["search_metadata"], field
     for field in PARAMETER_FIELDS:
         assert field in record["search_parameters"], field
-    assert set(ORGANIC_FIELDS) <= set(record["organic_results"][0])
+    first = record["organic_results"][0]
+    assert all(first.get(field) for field in ORGANIC_FIELDS), first

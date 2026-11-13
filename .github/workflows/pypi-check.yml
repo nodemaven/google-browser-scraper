@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # bash stops a step at its first failing command, on Windows too (Git Bash);
+    # PowerShell would report only the last command's exit code.
+    shell: bash
+
 jobs:
   quickstart:
     name: quickstart (${{ matrix.os }})
@@ -22,6 +28,9 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The job runs code installed from PyPI; it gets no token to read.
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
