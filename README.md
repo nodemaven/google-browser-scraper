@@ -1,3 +1,4 @@
+<!-- mcp-name: io.github.nodemaven/serpmaven -->
 <div align="center">
 
 <img src="https://raw.githubusercontent.com/nodemaven/serpmaven/main/assets/banner.png" alt="SERP Maven">

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nodemaven/serpmaven",
+  "title": "SERP Maven",
+  "description": "Live Google search for AI agents from a real Chrome browser and your residential proxy",
+  "repository": {
+    "url": "https://github.com/nodemaven/serpmaven",
+    "source": "github"
+  },
+  "version": "0.2.3",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "serpmaven",
+      "version": "0.2.3",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "NODEMAVEN_LOGIN",
+          "description": "NodeMaven Proxy Username from the dashboard (or run `serpmaven login` once instead)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "NODEMAVEN_PASSWORD",
+          "description": "NodeMaven Proxy Password from the dashboard",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "SERPMAVEN_PROXY",
+          "description": "Any other provider: proxy URL with {session} where the sticky session id goes",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
