@@ -1,0 +1,10 @@
+name = "serpmaven-usage"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[[analytics_engine_datasets]]
+binding = "USAGE"
+dataset = "serpmaven_usage"
+
+# The route goes here once the domain is set up, e.g.
+# routes = [{ pattern = "usage.example.com/v1/ping", custom_domain = true }]

@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from . import __version__, browser, config, engines, env, hints, installer, warmup
+from . import __version__, browser, config, engines, env, hints, installer, usage, warmup
 from .classify import classify
 from .mcp import DEFAULT_LINKS as MCP_LINKS
 from .output import WRITERS, answered, open_writer, use_utf8
@@ -393,6 +393,7 @@ def _scraper_options(p: argparse.ArgumentParser) -> None:
 def _proxy_source(args) -> Iterator[Any]:
     """One proxy source per run, shared by every worker; a demo sub-user is deleted on exit."""
     kind, url = _source_kind(args)
+    usage.ping(args.command, kind)
     if args.country and kind not in ("nodemaven", "nodemaven-demo"):
         raise ValueError(
             "--country only applies to NodeMaven; put the country in your provider's "
